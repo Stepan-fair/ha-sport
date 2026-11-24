@@ -26,7 +26,9 @@
  try{
  await frame();
  const today=local().slice(0,10);
- verify(!$("who").hidden && $("who").options.length===2 && $("single-profile").hidden,"two authorised profiles can be switched");
+ verify(limitedAccount ? who==="person2"&&$("who").hidden&&$("who").options.length===1&&!$("single-profile").hidden :
+        who==="person1"&&!$("who").hidden&&$("who").options.length===2&&$("single-profile").hidden,"account scope on first load");
+ verify(!noNativeUUID||typeof crypto.randomUUID==="undefined","HTTP crypto surface");
 
  verify(document.querySelectorAll(".calDay").length===7&&new Date(el(".calDay").dataset.action.slice(5)+"T12:00").getDay()===1,"Monday week");
  await actionButton("cal-toggle");await actionButton("cal-prev");const prev=viewedMonth;
@@ -36,13 +38,24 @@
  verify(!visible("meal"),"clean meal hidden");set("product","Проба");set("amount","0");
  await actionButton("meal");verify(!state.meals.length&&visible("meal"),"invalid meal keeps edits");
  set("amount","100");set("product","");verify(!visible("meal"),"reverted meal hidden");
- set("mealdate",day+"T12:35");set("product","Кефир");await actionButton("meal");verify(state.meals[0].date===day+"T12:35","historical meal");
+ set("mealdate",day+"T12:35");set("product","Кефир");await actionButton("meal");verify(state.meals[0]?.date===day+"T12:35","historical meal: "+$("message").textContent);
  const mealId=state.meals[0].id;await actionButton("edit-meal-"+mealId);set("amount","210");set("barcode","4600000000008");
  await actionButton("meal");verify(state.meals.length===1&&state.meals[0].amount===210&&state.meals[0].id===mealId,"correct saved portion in place");
  set("query","4600000000008");await actionButton("search");await actionButton("pick-0");
  verify($("product").value==="Кефир"&&$("barcode").value==="4600000000008","offline cached barcode");
  await actionButton("food-complete");verify(!!state.foodComplete[day],"food completion");
+ await actionButton("repeat-meal-"+mealId);await actionButton("meal");
+ const otherId=state.meals[1].id;
+ verify(otherId!==mealId,"repeating a meal allocates a distinct ID");
+ window.confirm=()=>false;await actionButton("remove-meal-"+otherId);verify(state.meals.length===2,"cancel portion deletion");
+ window.confirm=()=>true;await actionButton("remove-meal-"+otherId);verify(state.meals.length===1&&state.meals[0].id===mealId,"delete only the repeated portion");
  await go(1);verify($("start").value===day+"T12:35","shared clock");set("start",day+"T10:00");await actionButton("start");
+ const uuidV4=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+ verify(uuidV4.test(draft?.id)&&uuidV4.test(mealId)&&draft.id!==mealId,"distinct v4 IDs for workout and meal");
+ const started=draft.id;
+ await go(2);await actionButton("repeat-meal-"+mealId);await actionButton("meal");
+ await actionButton("remove-meal-"+state.meals[1].id);await go(1);
+ verify(draft.id===started&&state.meals.length===1&&draft.exercises.length>0,"deleting food leaves an active workout intact");
  const first=draft.exercises[0].name;
  verify(!visible("finish")&&!visible("save-note-0"),"empty workout and note hidden");
  const guide=el(".exerciseGuide");
@@ -84,6 +97,7 @@
  set("end",day+"T11:00");set("r0_0","");await actionButton("finish");
  verify(!!draft&&!state.workouts.length&&$("message").textContent.includes("повторы"),"missing completed reps rejected");
  set("r0_0","12");set("sec0","1:77");await actionButton("finish");verify(!!draft&&!state.workouts.length,"bad treadmill time rejected");
+ set("sec0","0:00");await actionButton("finish");verify(!!draft&&!state.workouts.length&&$("message").textContent.includes("нуля"),"zero treadmill duration rejected");
  set("sec0","5:00");set("kcal0","45");set("hr0","117");set("sec1","3:20");
  request=async(path,body)=>{if(body)throw Error("LTE отключена");return realRequest(path,body)};
  await actionButton("finish");verify(!draft&&!state.workouts.length&&queued().length===1,"completed workout retained offline");
@@ -100,6 +114,11 @@
  set("height","180");
  await click('[name="uses"][value="Креатин"]');await click('[name="uses"][value="Омега-3"]');await actionButton("save-supps");
  verify(!visible("save-supps")&&visible("profile")&&$("height").value==="180","independent profile form edits");
+ set("kg","0");await actionButton("weight");verify(!state.weights.length&&visible("weight"),"invalid manual weight retained for correction");
+ set("wdate",day+"T08:15");set("kg","74.2");await actionButton("weight");
+ verify(state.weights.length===1&&state.weights[0].kg===74.2&&!visible("weight"),"backdated manual measurement saved");
+ set("wdate",day+"T08:15");set("kg","74.5");await actionButton("weight");
+ verify(state.weights.length===1&&state.weights[0].kg===74.5,"correct a measurement at the same time without a duplicate");
  for(const x of document.querySelectorAll("input[name=eq]:checked"))x.click();
  await actionButton("profile");verify(!visible("profile")&&!state.profile.equipment.length,"empty personal equipment is saved");
  await click('[name="eq"][value="Молотковые сгибания"]');await actionButton("profile");
@@ -116,10 +135,15 @@
  await click('dialog[open] button[type="submit"]');verify(state.supps.length===2&&state.supps.some(x=>x.date===day+"T22:01"&&x.period==="Вечер"),"correct logged dose without duplicate");
  verify(el('[name="supp"][value="Креатин"]').disabled,"duplicate blocked");
  verify(document.documentElement.scrollWidth<=innerWidth,"viewport width");
+ if(!limitedAccount){
  $("who").value="person2";$("who").dispatchEvent(new Event("change"));await frame();
- verify(!state.meals.length&&!state.supps.length&&selectedDay===day,"profile isolation");
+ verify(!state.meals.length&&!state.supps.length&&!state.weights.length&&!state.workouts.length&&selectedDay===day,"profile isolation");
  verify(!state.profile.exerciseNotes,"personal note isolation");
  $("who").value="person1";$("who").dispatchEvent(new Event("change"));await frame();
+ }else{
+ $("who").value="person1";$("who").dispatchEvent(new Event("change"));await frame();
+ verify(who==="person2"&&state.meals[0].id===mealId,"restricted account retains its diary");
+ }
  await go(1);set("start",day+"T12:00");await actionButton("start");
  verify(draft.exercises.length===1&&draft.exercises[0].name==="Молотковые сгибания","autoplan respects single non-template exercise");
  set("exercise-new",first);await actionButton("choose-new");
@@ -157,6 +181,8 @@
  $("who").value="person1";$("who").dispatchEvent(new Event("change"));await frame();
  verify(who==="person2" && !visited.some(path=>path.endsWith("/person1")),"restricted account never requests the other diary");
  verify(!errors.length,"no uncaught application errors");
+ const recorded=parent.document.getElementById("requests");
+ recorded.hidden=true;recorded.textContent=JSON.stringify(exchanges);
  out.textContent="PASS "+checks.length+" scenarios";
  }catch(e){out.textContent="FAIL after "+checks.join(", ")+": "+e.message}
 })();

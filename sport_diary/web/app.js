@@ -379,7 +379,7 @@ async function action(a){
    note(value?"Комментарий сохранён.":"Комментарий удалён.");return
  }
  if(a==="save-supps"){const uses=selected("uses");await saveForm("save-supps",s=>s.profile.supps=uses);render();note("Выбор добавок сохранён.");return}
- if(/^(up|down|remove|choose)-/.test(a)){
+ if(/^(?:up|down|remove|choose)-\d+$/.test(a)||a==="choose-new"){
    const [op,pos]=a.split("-"),i=Number(pos),items=draft.exercises;
    if(op==="up"||op==="down"){
      const j=i+(op==="up"?-1:1);if(i>=0&&j>=0&&i<items.length&&j<items.length)[items[i],items[j]]=[items[j],items[i]];
@@ -415,7 +415,7 @@ async function action(a){
    copy.editBase=current||null;draft=copy;retain();if(review&&localStorage.getItem(pending.key)===pending.raw)localStorage.removeItem(pending.key);tab=1;render();return
  }
  if(a==="open"){tab=1;render();return}
- if(a==="start"){const date=when("start");draft={id:crypto.randomUUID(),date,exercises:plan(state,date),cardio:[{},{}]};retain();lastSummary=null}
+ if(a==="start"){const date=when("start");draft={id:newEntryId(),date,exercises:plan(state,date),cardio:[{},{}]};retain();lastSummary=null}
  if(a==="cancel"){if(!confirm("Удалить черновик этой тренировки?"))return;draft=null;retain()}
  if(a.startsWith("add-")||a.startsWith("sub-")){const sets=draft.exercises[+a.split("-")[1]].sets;if(a.startsWith("add"))sets.push({...sets.at(-1),kg:sets.at(-1)?.kg||0,reps:sets.at(-1)?.reps||10,done:false,easy:false});else sets.pop();retain()}
  if(a==="finish"){
@@ -431,7 +431,9 @@ async function action(a){
      throw Error("У отмеченного подхода укажи повторы и вес. Для упражнения без отягощения введи 0 кг.");
    }
    w.cardio=w.cardio.flatMap((c,i)=>{if(!Object.values(c).some(x=>x!==''&&x!=null))return [];if(!/^\d{1,3}:[0-5]\d$/.test(c.time||""))throw Error("Укажи время дорожки в формате мин:сек.");
-    const [m,s]=c.time.split(":").map(Number);return [{...c,role:i?"Заминка":"Разминка",seconds:m*60+s,kcal:c.kcal==null||c.kcal===""?null:Number(c.kcal)}]});
+    const [m,s]=c.time.split(":").map(Number),seconds=m*60+s;
+    if(!seconds)throw Error("Время дорожки должно быть больше нуля.");
+    return [{...c,role:i?"Заминка":"Разминка",seconds,kcal:c.kcal==null||c.kcal===""?null:Number(c.kcal)}]});
    if(Date.parse(w.end)<=Date.parse(w.date)||w.cardio.reduce((a,c)=>a+c.seconds,0)>(Date.parse(w.end)-Date.parse(w.date))/1000)throw Error("Проверь время начала, окончания и длительность дорожки.");
    if(!total(w).sets&&!w.cardio.length)throw Error("Отметь выполненный подход или внеси дорожку.");
    localStorage.setItem(queuePrefix()+w.id,JSON.stringify({workout:w,before}));
@@ -468,7 +470,7 @@ async function action(a){
  if(a.startsWith("edit-meal-")){editingMeal=a.slice(10);render();$("product").focus();return}
  if(a.startsWith("remove-meal-")){const id=a.slice(12);if(!confirm("Удалить эту порцию из дневника?"))return;await commit(s=>s.meals=s.meals.filter(m=>m.id!==id));editingMeal=null;render();return}
  if(a==="meal"){const code=val("barcode").trim();if(code&&!/^\d{8,14}$/.test(code))throw Error("Укажи штрихкод из 8–14 цифр.");
- const name=val("product").trim(),amount=Number(val("amount")),date=when("mealdate"),unit=val("unit"),nut=[0,1,2,3].map(i=>val("nut"+i)===""?null:Number(val("nut"+i)));if(!name||amount<=0||nut.some(x=>x<0))throw Error("Проверь продукт, порцию и пищевую ценность.");const id=editingMeal||crypto.randomUUID(),portion={id,name,amount,date,unit,nut,code};await saveForm("meal",s=>{if(editingMeal)s.meals=s.meals.map(m=>m.id===id?portion:m);else s.meals.push(portion);s.products=[{name,code,nut,unit},...(s.products||[]).filter(p=>code?p.code!==code:p.name!==name)]});editingMeal=null;render();$("foodday").value=date.slice(0,10);$("entries").innerHTML=mealList(date.slice(0,10));return}
+ const name=val("product").trim(),amount=Number(val("amount")),date=when("mealdate"),unit=val("unit"),nut=[0,1,2,3].map(i=>val("nut"+i)===""?null:Number(val("nut"+i)));if(!name||amount<=0||nut.some(x=>x<0))throw Error("Проверь продукт, порцию и пищевую ценность.");const id=editingMeal||newEntryId(),portion={id,name,amount,date,unit,nut,code};await saveForm("meal",s=>{if(editingMeal)s.meals=s.meals.map(m=>m.id===id?portion:m);else s.meals.push(portion);s.products=[{name,code,nut,unit},...(s.products||[]).filter(p=>code?p.code!==code:p.name!==name)]});editingMeal=null;render();$("foodday").value=date.slice(0,10);$("entries").innerHTML=mealList(date.slice(0,10));return}
  render();
 }
 function showTaken(){
