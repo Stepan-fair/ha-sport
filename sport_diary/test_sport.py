@@ -21,7 +21,11 @@ class Sport(unittest.TestCase):
         self.old = server.DATA
         server.DATA = Path(self.temp.name)
         self.addCleanup(setattr, server, "DATA", self.old)
-    def call(self, path, body=None, *, client="127.0.0.1", user=""):
+        self.settings = {"person1_user": "u1", "person2_user": "u2", "person1_can_open_both": True,
+                         "person1_name": "Первый", "person2_name": "Второй ❤️"}
+        (server.DATA / "options.json").write_text(json.dumps(self.settings), encoding="utf8")
+
+    def call(self, path, body=None, *, client="172.30.32.2", user="u1"):
         payload = json.dumps(body).encode() if body is not None else b""
         method = "POST" if body is not None else "GET"
         headers = f"{method} {path} HTTP/1.0\r\nX-Remote-User-Id: {user}\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n"
@@ -51,16 +55,31 @@ class Sport(unittest.TestCase):
         self.assertEqual(self.call("/weight/person2"), (200, b"null"))
 
     def test_ingress_profile_permissions(self):
-        proxied={"client":"172.30.32.2","user":"u1"}
-        self.assertEqual(self.call("/profile/person1",**proxied)[0],403)
-        with patch.object(server,"options",return_value={"person1_user":"u1","person2_user":"u2"}):
-            self.assertEqual(json.loads(self.call("/profiles",**proxied)[1])[0]["id"],"person1")
-            self.assertEqual(self.call("/profile/person1",**proxied)[0],200)
-            self.assertEqual(self.call("/weights/person2",**proxied)[0],403)
-            self.assertEqual(self.call("/profile/person2",{"rev":0,"data":{}},**proxied)[0],403)
-        with patch.object(server,"options",return_value={"person1_user":"u1","shared_diaries":True}):
-            self.assertEqual(self.call("/profile/person2",**proxied)[0],200)
-            self.assertEqual(self.call("/profile/person2",client="172.30.32.2",user="u3")[0],403)
+        for user, permitted in [("u1", ["person1", "person2"]), ("u2", ["person2"]), ("other", []), ("", [])]:
+            with self.subTest(user=user):
+                profiles = json.loads(self.call("/profiles", user=user)[1])
+                self.assertEqual([p["id"] for p in profiles], permitted)
+                if "person2" in permitted:
+                    self.assertEqual(profiles[-1]["name"], "Второй ❤️")
+                for who in server.PROFILES:
+                    expected = 200 if who in permitted else 403
+                    for route in ("profile", "weight", "weights"):
+                        self.assertEqual(self.call(f"/{route}/{who}", user=user)[0], expected)
+                    data = {"rev": 1 if user == "u2" else 0, "data": {"marker": user}}
+                    self.assertEqual(self.call("/profile/" + who, data, user=user)[0], expected)
+        self.assertEqual(self.profile("person1")["data"], {"marker": "u1"})
+        self.assertEqual(self.profile("person2")["data"], {"marker": "u2"})
+
+    def test_profile_access_after_upgrade_or_misconfiguration(self):
+        def listed(settings, user):
+            with patch.object(server, "options", return_value=settings):
+                return [p["id"] for p in json.loads(self.call("/profiles", user=user)[1])]
+        legacy = {"person1_user": "u1", "person2_user": "u2", "shared_diaries": True}
+        self.assertEqual(listed(legacy, "u2"), ["person2"])
+        self.assertEqual(listed({**legacy, "person1_can_open_both": False}, "u1"), ["person1"])
+        self.assertEqual(listed({**self.settings, "person2_user": "u1"}, "u1"), [])
+        self.assertEqual(listed({}, "u1"), [])
+        self.assertEqual(self.call("/profile/person1", client="127.0.0.1", user="u2")[0], 403)
 
     def test_scale_poll_retains_infrequent_values_history_units_and_isolation(self):
         path=server.DATA/"sport.db"
@@ -83,6 +102,7 @@ class Sport(unittest.TestCase):
         shutil.copy2(path,backup)
         with tempfile.TemporaryDirectory() as restored,patch.object(server,"DATA",Path(restored)):
             shutil.copy2(backup,server.DATA/"sport.db")
+            (server.DATA / "options.json").write_text(json.dumps(self.settings), encoding="utf8")
             self.assertEqual(json.loads(self.call("/weights/person1")[1]),saved)
             self.assertEqual(self.profile("person1")["data"]["weights"][0]["kg"],88)
 
@@ -117,8 +137,14 @@ class Sport(unittest.TestCase):
         self.assertEqual(self.profile("person1"), {"rev":1,"data":initial})
 
     def test_live_http_concurrent_writes_and_restart(self):
+        class TestIngress(server.Handler):
+            def handle_request(self):
+                self.client_address = ("172.30.32.2", self.client_address[1])
+                self.headers["X-Remote-User-Id"] = "u1"
+                return super().handle_request()
+
         def start():
-            http = server.ThreadingHTTPServer(("127.0.0.1",0),server.Handler)
+            http = server.ThreadingHTTPServer(("127.0.0.1",0),TestIngress)
             thread=Thread(target=http.serve_forever,daemon=True)
             thread.start()
             return http,"http://127.0.0.1:" + str(http.server_port)

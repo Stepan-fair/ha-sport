@@ -29,6 +29,17 @@ def options():
     return json.loads(path.read_text(encoding="utf8")) if path.exists() else {}
 
 
+def allowed_profiles(settings, user_id):
+    if not user_id:
+        return ()
+    owned = [profile for profile in PROFILES if settings.get(profile + "_user") == user_id]
+    if len(owned) != 1:
+        return ()
+    if owned[0] == "person1" and settings.get("person1_can_open_both") is True:
+        return PROFILES
+    return owned
+
+
 def core(path):
     return fetch("http://supervisor/core/api/" + path, {"Authorization": "Bearer " + os.environ["SUPERVISOR_TOKEN"]})
 
@@ -75,11 +86,9 @@ class Handler(BaseHTTPRequestHandler):
         who = url.path.split("/")[-1]
         if url.path == "/profiles" or url.path.startswith(("/profile/", "/weight/", "/weights/", "/food")):
             settings = options()
-            user_id = self.headers.get("X-Remote-User-Id")
-            allowed = [p for p in PROFILES if user_id and settings.get(p+"_user")==user_id]
-            if self.client_address[0]=="127.0.0.1" or allowed and settings.get("shared_diaries"):
-                allowed = list(PROFILES)
-            if who in PROFILES and who not in allowed or url.path=="/food" and not allowed:
+            user_id = self.headers.get("X-Remote-User-Id") if self.client_address[0] == "172.30.32.2" else None
+            allowed = allowed_profiles(settings, user_id)
+            if (who in PROFILES and who not in allowed) or (url.path == "/food" and not allowed):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
             return self.reply(200, [{"id": p, "name": settings.get(p+"_name") or ("Профиль "+str(i+1))}

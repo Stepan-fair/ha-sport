@@ -26,6 +26,7 @@
  try{
  await frame();
  const today=local().slice(0,10);
+ verify(!$("who").hidden && $("who").options.length===2 && $("single-profile").hidden,"two authorised profiles can be switched");
 
  verify(document.querySelectorAll(".calDay").length===7&&new Date(el(".calDay").dataset.action.slice(5)+"T12:00").getDay()===1,"Monday week");
  await actionButton("cal-toggle");await actionButton("cal-prev");const prev=viewedMonth;
@@ -146,6 +147,15 @@
  set("exercise-new",customName);await actionButton("choose-new");
  verify(el('[data-action="save-note-1"]').closest("details").querySelector("textarea").value==="6","custom exercise restores its saved note");
  await actionButton("cancel");
+ const visited=[];
+ request=async(path,body)=>{
+   visited.push(path);
+   return path==="profiles"?[{id:"person2",name:"Второй ❤️"}]:realRequest(path,body);
+ };
+ await initialize();
+ verify(who==="person2" && $("who").hidden && $("single-profile").textContent==="Второй ❤️" && !$("single-profile").hidden,"one account opens its named diary without a switch");
+ $("who").value="person1";$("who").dispatchEvent(new Event("change"));await frame();
+ verify(who==="person2" && !visited.some(path=>path.endsWith("/person1")),"restricted account never requests the other diary");
  verify(!errors.length,"no uncaught application errors");
  out.textContent="PASS "+checks.length+" scenarios";
  }catch(e){out.textContent="FAIL after "+checks.join(", ")+": "+e.message}

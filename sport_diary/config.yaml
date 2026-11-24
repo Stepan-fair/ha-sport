@@ -1,5 +1,5 @@
 name: Спорт
-version: "0.5.0"
+version: "0.5.1"
 slug: sport_diary
 description: Тренировки, питание и дневник для двух профилей
 arch: [amd64, aarch64]
@@ -17,7 +17,7 @@ options:
   person2_name: "Профиль 2"
   person1_user: ""
   person2_user: ""
-  shared_diaries: false
+  person1_can_open_both: true
   person1_weight: ""
   person2_weight: ""
 schema:
@@ -25,6 +25,7 @@ schema:
   person2_name: str
   person1_user: str?
   person2_user: str?
-  shared_diaries: bool
+  person1_can_open_both: bool
+  shared_diaries: bool?
   person1_weight: str?
   person2_weight: str?

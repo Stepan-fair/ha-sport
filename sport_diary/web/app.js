@@ -101,6 +101,9 @@ async function load(){
 }
 async function initialize(){
  people=await request("profiles");
+ $("who").hidden=people.length<2;
+ $("single-profile").hidden=people.length!==1;
+ $("single-profile").textContent=people.length===1?people[0].name:"";
  if(!people.length){$("content").textContent="Укажи ID своей учётной записи HA в настройках приложения и открой панель снова.";$("who").disabled=true;return}
  if(!people.some(p=>p.id===who))who=people[0].id;
  $("who").innerHTML=people.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join("");
@@ -497,7 +500,7 @@ document.addEventListener("click",async ev=>{const b=ev.target.closest("button")
      const message=document.createElement("p");message.className="saveError";message.textContent=e.message;b.after(message);
    }
  }finally{b.removeAttribute("aria-busy");busy=false;$("who").disabled=false}});
-$("who").onchange=()=>{if(busy){$("who").value=who;return}who=$("who").value;scale=[];editingMeal=null;settingsOpen=false;state=null;draft=null;lastSummary=null;results=[];tab=0;$("content").innerHTML="";note("");load().catch(e=>note(e.message))};
+$("who").onchange=()=>{if(busy||!people.some(p=>p.id===$("who").value)){$("who").value=who;return}who=$("who").value;scale=[];editingMeal=null;settingsOpen=false;state=null;draft=null;lastSummary=null;results=[];tab=0;$("content").innerHTML="";note("");load().catch(e=>note(e.message))};
 if(typeof window!=="undefined"&&window.addEventListener){
  const recover=async()=>{
    if(!state||busy||document.hidden)return;
