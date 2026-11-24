@@ -51,14 +51,39 @@ test("Расписание учитывает план, перенос, черн
  assert.equal(schedule("Железо","Утром")[0],"По назначению");
 });
 test("Для каждого доступного упражнения есть техника, мышцы и непустой план",()=>{
- assert.equal(Object.keys(catalogue).length,28);
+ assert.ok(catalogue["Жим ногами горизонтальный"] && catalogue["Жим ногами под 45°"]);
  for(const [name,guide] of Object.entries(catalogue)){
-   for(const field of ["group","photo","station","recognize","setup","movement","avoid","primary","secondary"])
+   for(const field of ["group","station","recognize","setup","movement","avoid","primary","secondary"])
      assert.ok(guide[field]?.trim(),name+" / "+field);
-   assert.match(guide.photo,/^[a-zA-Z0-9_-]+$/);
+   if(guide.photo)assert.match(guide.photo,/^[a-zA-Z0-9_-]+$/);
+   else assert.ok(guide.legacy || guide.reference?.startsWith("https://"),name);
    assert.deepEqual(plan({...s,profile:{...s.profile,equipment:[name]}}, "2026-11-24").map(e=>e.name),[name]);
  }
  assert.deepEqual(plan({...s,profile:{...s.profile,equipment:[]}}, "2026-11-24"),[]);
+});
+test("История, шаг веса и автоматический выбор разделены по варианту жима",()=>{
+ const variants=["Жим ногами под 45°","Жим ногами горизонтальный","Жим ногами"];
+ const exercises=variants.map((name,i)=>({name,sets:[{kg:[80,40,100][i],reps:8,done:true}]}));
+ const history={date:"2026-04-02T12:00",exercises};
+ for(let i=0;i<variants.length;i++){
+   const state={...s,profile:{...s.profile,equipment:[variants[i]]},workouts:[history]};
+   const item=plan(state,"2026-04-04T10:00")[0];
+   assert.equal(item.name,variants[i]);assert.equal(item.sets[0].kg,exercises[i].sets[0].kg);
+   state.workouts=[{...history,exercises:exercises.filter(e=>e.name!==variants[i])}];
+   assert.equal(plan(state,"2026-04-04T10:00")[0].sets[0].kg,0);
+ }
+ const state={...s,profile:{...s.profile,equipment:variants},workouts:[]};
+ const first=plan(state,"2026-04-04T10:00");
+ assert.equal(first.length,1);assert.equal(first[0].name,variants[0]);
+ state.workouts=[history];
+ const next=plan(state,"2026-04-05T10:00");
+ assert.equal(next.length,1);assert.equal(next[0].name,variants[1]);
+ for(const [i,name] of variants.entries()){
+   const steps=Object.fromEntries(variants.map((v,j)=>["exercise:"+v.toLowerCase(),j+1]));
+   const completed=exercises.map(e=>({...e,sets:Array.from({length:3},()=>({...e.sets[0],easy:true}))}));
+   const specific={...s,profile:{...s.profile,equipment:[name],exerciseSteps:steps},workouts:[{...history,exercises:completed}]};
+   assert.equal(plan(specific,"2026-04-04T10:00")[0].sets[0].kg,exercises[i].sets[0].kg+i+1);
+ }
 });
 test("Одно кардио сохраняет очередь, удалённые подходы не повышают вес",()=>{
  const state={...s,profile:{...s.profile,equipment:Object.keys(catalogue)}};
@@ -66,6 +91,25 @@ test("Одно кардио сохраняет очередь, удалённы�
  const cardio={date:"2026-11-20",exercises:[],cardio:[{seconds:600}]};
  assert.deepEqual(plan({...state,workouts:[cardio]},when),before);
  const e={...before[0],sets:[{kg:50,reps:8,easy:true,done:true}]};
- const next=plan({...s,workouts:[{date:"2026-11-22",exercises:[e]}]},when);
+ const next=plan({...s,profile:{...s.profile,equipment:[e.name]},workouts:[{date:"2026-11-22",exercises:[e]}]},when);
  assert.equal(next[0].sets[0].kg,50);
+});
+test("В каждой группе конкретные машины используют только собственную историю",()=>{
+ const families=new Map();
+ for(const [name,guide] of Object.entries(catalogue)){
+   if(!guide.family)continue;
+   if(!families.has(guide.family))families.set(guide.family,[]);
+   families.get(guide.family).push(name);
+ }
+ assert.equal(families.size,5);
+ for(const names of families.values()){
+   const old=names.find(name=>catalogue[name].legacy),variants=names.filter(name=>name!==old);
+   assert.ok(old&&variants.length>=2);
+   const workouts=[{date:"2026-01-05T10:00",exercises:[{name:old,sets:[{kg:84,reps:8,done:true}]}]}];
+   const state={...s,profile:{...s.profile,equipment:[old,...variants]},workouts};
+   const planned=plan(state,"2026-01-07T10:00");
+   assert.equal(planned.length,1);assert.ok(variants.includes(planned[0].name));
+   assert.equal(planned[0].sets[0].kg,0);
+   assert.equal(workouts[0].exercises[0].name,old);
+ }
 });

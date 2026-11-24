@@ -200,8 +200,10 @@ function guideFor(name){
 function guidePanel(name){
  const g=guideFor(name);
  if(!g)return '<p class="muted">Своё упражнение · можно сохранить личную настройку.</p>';
- const photos=[0,1].map(i=>'<figure><img data-photo="'+esc(exercisePhotoBase+g.photo+'/'+i+'.jpg')+'" alt="'+esc(name+(i?' — второе положение':' — первое положение'))+'" decoding="async"><figcaption>'+(i?'Положение 2':'Положение 1')+'</figcaption><button type="button" class="retryPhoto" hidden>Загрузить фото ещё раз</button></figure>').join("");
- return '<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Фото и техника</summary><div class="guideBody"><h3>'+esc(g.station)+'</h3><p>'+esc(g.recognize)+'</p><div class="guidePhotos">'+photos+'</div><small>Пример оборудования · Free Exercise DB</small><dl>'+
+ if(g.legacy)return '<p class="muted">В этой записи не указан тренажёр. В новой тренировке можно выбрать его точный вариант.</p>';
+ const photos=g.photo?'<div class="guidePhotos">'+[0,1].map(i=>'<figure><img data-photo="'+esc(exercisePhotoBase+g.photo+'/'+i+'.jpg')+'" alt="'+esc(name+(i?' — второе положение':' — первое положение'))+'" decoding="async"><figcaption>'+(i?'Положение 2':'Положение 1')+'</figcaption><button type="button" class="retryPhoto" hidden>Загрузить фото ещё раз</button></figure>').join("")+'</div><small>Пример оборудования · Free Exercise DB</small>':
+   '<p><a href="'+esc(g.reference)+'" target="_blank" rel="noopener noreferrer">Посмотреть тренажёр на сайте производителя ↗</a></p>';
+ return '<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Фото и техника</summary><div class="guideBody"><h3>'+esc(g.station)+'</h3><p>'+esc(g.recognize)+'</p>'+photos+'<dl>'+
  [["Настройка",g.setup],["Движение",g.movement],["На что обратить внимание",g.avoid],["Основная нагрузка",g.primary],["Помогают или стабилизируют",g.secondary]].map(([title,body])=>'<dt>'+title+'</dt><dd>'+esc(body)+'</dd>').join("")+'</dl></div></details>';
 }
 document.addEventListener("toggle",e=>{
@@ -220,14 +222,19 @@ function notePanel(name,i){
  const key=noteKey(name),saved=state.profile.exerciseNotes?.[key]||"";
  return '<details class="exerciseNote" data-disclosure="'+esc("note:"+key)+'"><summary>Моя настройка'+(saved?' · есть запись':'')+'</summary><label>Комментарий к упражнению<textarea rows="3" maxlength="500" placeholder="Например: сиденье 4, спинка 2, рукоять узкая">'+esc(saved)+'</textarea></label><button type="button" class="primary" data-action="save-note-'+esc(i)+'" data-note-key="'+esc(key)+'" data-ex-name="'+esc(name)+'" hidden>Сохранить комментарий</button></details>';
 }
+function knownExerciseNames(){
+ const p=state.profile;
+ const recorded=[...p.equipment,...(p.customExercises||[]),...state.workouts.flatMap(w=>w.exercises.map(e=>e.name)),...(draft?.exercises||[]).map(e=>e.name)];
+ return [...new Set([...Object.keys(guides).filter(n=>!guides[n].legacy),...recorded])];
+}
 function exercisePreferences(profile){
  const groups=new Map();
- for(const name of new Set([...Object.keys(guides),...profile.equipment,...(profile.customExercises||[]),...state.workouts.flatMap(w=>w.exercises.map(e=>e.name)),...(draft?.exercises||[]).map(e=>e.name)])){
+ for(const name of knownExerciseNames()){
    const group=guideFor(name)?.group||"Свои упражнения";
    if(!groups.has(group))groups.set(group,[]);
    groups.get(group).push(name);
  }
- return '<h3>Доступные упражнения</h3><p class="muted">Отметь упражнения, которые можно выполнять в твоём зале. Из них составляется план.</p>'+Array.from(groups,([group,names])=>'<details class="equipmentGroup" data-disclosure="'+esc("equipment:"+group)+'"><summary>'+esc(group)+' <span class="eqCount"></span></summary><div>'+names.map(n=>'<div>'+check(n,'name="eq" value="'+esc(n)+'"',profile.equipment.includes(n))+'<label>Шаг, кг<input type="number" min="0" max="100" step="any" data-step-name="'+esc(noteKey(n))+'" value="'+esc(profile.exerciseSteps?.[noteKey(n)]??"")+'" placeholder="По профилю"></label></div>').join("")+'</div></details>').join("");
+ return '<h3>Доступные упражнения</h3><p class="muted">Отметь упражнения, которые можно выполнять в твоём зале. Из них составляется план.</p>'+Array.from(groups,([group,names])=>'<details class="equipmentGroup" data-disclosure="'+esc("equipment:"+group)+'"><summary>'+esc(group)+' <span class="eqCount"></span></summary><div>'+names.map(n=>'<div>'+check(exerciseLabel(n),'name="eq" value="'+esc(n)+'"',profile.equipment.includes(n))+'<label>Шаг, кг<input type="number" min="0" max="100" step="any" data-step-name="'+esc(noteKey(n))+'" value="'+esc(profile.exerciseSteps?.[noteKey(n)]??"")+'" placeholder="По профилю"></label></div>').join("")+'</div></details>').join("");
 }
 function period(d){const h=new Date(d).getHours();return h<6?"Ночь":h<12?"Утро":h<18?"День":"Вечер"}
 const periods=["Утро","День","Вечер","Ночь"];
@@ -280,18 +287,31 @@ function progressMeter(){
  return '<div class="meter" id="setMeter"><span>Выполнено подходов</span><b>'+done+' / '+sets.length+'</b><progress max="'+Math.max(1,sets.length)+'" value="'+done+'"></progress></div>';
 }
 function exercisePicker(i){
- const names=[...new Set([...state.profile.equipment,...(state.profile.customExercises||[]),...Object.keys(guides),...state.workouts.flatMap(w=>w.exercises.map(e=>e.name)),...draft.exercises.map(e=>e.name)])];
  const suffix=i===null?"new":i;
- return '<label>Выбери или введи название<input list="exerciseNames" id="exercise-'+suffix+'" maxlength="100" autocomplete="off"></label>'+btn("choose-"+suffix,i===null?"Добавить упражнение":"Заменить")+(i===null?'<datalist id="exerciseNames">'+options(names,"")+'</datalist>':'');
+ const groups=new Map();
+ for(const name of new Set([...state.profile.equipment,...knownExerciseNames()])){
+   const group=state.profile.equipment.includes(name)?"Доступны в моём зале":guideFor(name)?.group||"Свои упражнения";
+   if(!groups.has(group))groups.set(group,[]);
+   groups.get(group).push(name);
+ }
+ const groupOptions=Array.from(groups,([label,names])=>'<optgroup label="'+esc(label)+'">'+names.map(n=>'<option value="'+esc("name:"+n)+'">'+esc(exerciseLabel(n))+'</option>').join("")+'</optgroup>').join("");
+ return '<label class="exercisePicker">Упражнение<select id="exercise-'+suffix+'" data-picker="'+suffix+'"><option value="">Выбрать упражнение…</option><option value="custom">Ввести своё название…</option>'+groupOptions+'</select></label>'+
+   '<label class="exercisePicker" hidden>Своё название<input id="custom-'+suffix+'" type="text" maxlength="100" autocomplete="off"></label>'+btn("choose-"+suffix,i===null?"Добавить упражнение":"Заменить");
 }
+document.addEventListener("change",event=>{
+ const pos=event.target.dataset?.picker;if(pos===undefined)return;
+ const input=$("custom-"+pos),custom=event.target.value==="custom";
+ input.closest("label").hidden=!custom;
+ if(custom)input.focus();
+});
 function editExercise(i){
  return '<details class="edit"><summary>Изменить упражнение и порядок</summary><div class="actions">'+(i>0?btn("up-"+i,"↑ Выше"):"")+(i+1<draft.exercises.length?btn("down-"+i,"↓ Ниже"):"")+btn("remove-"+i,"Убрать")+'</div>'+exercisePicker(i)+'</details>';
 }
 function workout(){
  if(!draft)return pendingPanel()+state.workouts.filter(w=>w.date.startsWith(selectedDay)).map(summary).join("")+card("Новая тренировка",dt("start","Дата и время начала")+btn("start","Начать тренировку",true));
  return card("Тренировка",dt("start","Начало",draft.date)+'<small> Черновик на этом устройстве</small>')+
- card("Состав тренировки",progressMeter()+(draft.exercises.length?"":'<p class="muted">Добавь упражнение вручную или заполни дорожку. Для автоплана отметь доступные упражнения в настройках профиля.</p>')+'<div class="sequence">'+draft.exercises.map((e,i)=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(e.name)+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(e.name)+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(e.name)+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
- draft.exercises.map((e,i)=>card(e.name,guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'">'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="0.1"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1"')+check("Готово",'data-k="done"',t.done)+check("Запас",'data-k="easy"',t.easy)+'</div>').join('')+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+
+ card("Состав тренировки",progressMeter()+(draft.exercises.length?"":'<p class="muted">Добавь упражнение вручную или заполни дорожку. Для автоплана отметь доступные упражнения в настройках профиля.</p>')+'<div class="sequence">'+draft.exercises.map((e,i)=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(exerciseLabel(e.name))+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(exerciseLabel(e.name))+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(exerciseLabel(e.name))+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
+ draft.exercises.map((e,i)=>card(exerciseLabel(e.name),guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'">'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="0.1"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1"')+check("Готово",'data-k="done"',t.done)+check("Запас",'data-k="easy"',t.easy)+'</div>').join('')+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+
  ["Разминка","Заминка"].map((name,i)=>{const c=draft.cardio[i];return card(name+" · дорожка",field("sec"+i,"Время, мин:сек","text",c.time,'data-c="'+i+'" data-f="time" placeholder="7:04"')+
  [["hr","Средний пульс"],["speed","Скорость, км/ч"],["incline","Уклон, %"],["distance","Дистанция, м"],["power","Мощность, Вт"],["kcal","Энергия, ккал"]].map(([k,n])=>field(k+i,n,"number",c[k],'min="0" step="any" data-c="'+i+'" data-f="'+k+'"')).join(''))}).join('')+
  card("Завершение",dt("end","Окончание (по умолчанию — момент сохранения)",draft.end||(selectedDay===local().slice(0,10)?stamp():""))+'<div class="actions">'+'<small id="finishHint">Отметь подход или заполни дорожку, чтобы завершить занятие.</small>'+btn("finish","Закончить и сохранить",true)+btn("cancel","Отменить тренировку")+'</div>');
@@ -299,8 +319,8 @@ function workout(){
 function summary(w){
  const t=total(w);const gains=[];
  const cardio=w.cardio.map(c=>'<p><b>'+esc(c.role)+'</b> · '+Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,"0")+[["hr","уд/мин"],["speed","км/ч"],["incline","% уклон"],["distance","м"],["power","Вт"],["kcal","ккал"]].filter(([k])=>c[k]!=null&&c[k]!=="").map(([k,u])=>" · "+esc(c[k])+" "+u).join("")+"</p>").join("");
- for(const [i,e] of w.exercises.entries()){const before=e.previous;const actual=e.sets.filter(t=>t.done).map(t=>t.kg+" × "+t.reps).join(", ");if(actual)gains.push('<p>'+esc(e.name)+' · '+esc(actual)+(before?'<br><small>Раньше · '+esc(before)+'</small>':'')+'</p>'+guidePanel(e.name)+notePanel(e.name,"history-"+w.id+"-"+i))}
- const ready=w.exercises.filter(e=>e.sets.length&&e.sets.every(t=>t.done&&t.easy)).map(e=>e.name);
+ for(const [i,e] of w.exercises.entries()){const before=e.previous;const actual=e.sets.filter(t=>t.done).map(t=>t.kg+" × "+t.reps).join(", ");if(actual)gains.push('<p>'+esc(exerciseLabel(e.name))+' · '+esc(actual)+(before?'<br><small>Раньше · '+esc(before)+'</small>':'')+'</p>'+guidePanel(e.name)+notePanel(e.name,"history-"+w.id+"-"+i))}
+ const ready=w.exercises.filter(e=>e.sets.length&&e.sets.every(t=>t.done&&t.easy)).map(e=>exerciseLabel(e.name));
  const feedback=ready.length?"С запасом выполнены все подходы: "+ready.join(", ")+".":"";
  const missed=w.exercises.some(e=>e.sets.some(t=>!t.done));
  return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+ (t.estimated===null?(t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':'Для оценки калорий нужен вес на дату занятия'):(w.kg?'≈ ':'')+t.estimated+' ккал за занятие')+' · '+t.points+' баллов · вес '+(w.kg??'—')+' кг</p>'+cardio+btn('edit-workout-'+esc(w.id),'Исправить тренировку')+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
@@ -384,9 +404,11 @@ async function action(a){
    if(op==="up"||op==="down"){
      const j=i+(op==="up"?-1:1);if(i>=0&&j>=0&&i<items.length&&j<items.length)[items[i],items[j]]=[items[j],items[i]];
    }else{
-     const typed=op==="choose"?val("exercise-"+pos).trim().replace(/\s+/g," "):"";
+     const choice=op==="choose"?val("exercise-"+pos):"";
+     const typed=(choice==="custom"?val("custom-"+pos):choice.slice(5)).trim().replace(/\s+/g," ");
      if(typed.length>100)throw Error("Название упражнения должно быть не длиннее 100 символов.");
-     const name=Object.keys(guides).find(n=>noteKey(n)===noteKey(typed))||typed;
+     const name=knownExerciseNames().find(n=>noteKey(n)===noteKey(typed))||typed;
+     if(choice==="custom"&&guideFor(name)?.legacy)throw Error("Уточни тренажёр в названии или выбери конкретный вариант из списка.");
      if(op==="choose"&&pos!=="new"&&items[i]?.name===name)return;
      if(op==="choose"&&!name)throw Error("Выбери упражнение или введи своё название.");
      if(pos!=="new"&&items[i].sets.some(t=>t.done)&&!confirm("Убрать упражнение вместе с отмеченными подходами?"))return;
@@ -612,7 +634,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&drag)clearDrag()});
 function openPosition(i){
  const dlg=document.createElement("dialog"),name=draft.exercises[i].name;
  dlg.setAttribute("aria-label","Позиция упражнения");
- dlg.innerHTML='<form><h2>'+esc(name)+'</h2><label>Позиция в тренировке<select>'+draft.exercises.map((e,j)=>'<option value="'+j+'" '+(j===i?'selected':'')+'>'+(j+1)+' · '+esc(e.name)+'</option>').join("")+'</select></label><div class="actions"><button class="primary">Переместить</button><button type="button">Отмена</button></div></form>';
+ dlg.innerHTML='<form><h2>'+esc(name)+'</h2><label>Позиция в тренировке<select>'+draft.exercises.map((e,j)=>'<option value="'+j+'" '+(j===i?'selected':'')+'>'+(j+1)+' · '+esc(exerciseLabel(e.name))+'</option>').join("")+'</select></label><div class="actions"><button class="primary">Переместить</button><button type="button">Отмена</button></div></form>';
  document.body.append(dlg);let focus=i;
  dlg.querySelector("form").onsubmit=e=>{e.preventDefault();focus=Number(dlg.querySelector("select").value);moveExercise(i,focus);dlg.close()};
  dlg.querySelector('[type=button]').onclick=()=>dlg.close();dlg.onclose=()=>{dlg.remove();document.querySelector('[data-reorder="'+focus+'"]')?.focus({preventScroll:true})};dlg.showModal();

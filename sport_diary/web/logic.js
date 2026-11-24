@@ -1,9 +1,11 @@
 const programs = [
-  [["Жим ногами","жим"],["Вертикальная тяга","тяга"],["Жим от груди","жим"],["Сгибание ног","ноги"],["Горизонтальная тяга","тяга"]],
-  [["Горизонтальная тяга","тяга"],["Жим ногами","жим"],["Жим лёжа","жим"],["Разгибание ног","ноги"],["Вертикальная тяга","тяга"]]
+  ["Жим ногами под 45°","Вертикальная тяга на верхнем блоке","Жим от груди горизонтальный в тренажёре","Сгибание ног сидя","Горизонтальная тяга на нижнем блоке"],
+  ["Горизонтальная тяга на нижнем блоке","Жим ногами горизонтальный","Жим лёжа","Разгибание ног","Вертикальная тяга на верхнем блоке"]
 ];
 const guides = typeof module === "undefined" ? exerciseCatalog : require("./catalog.json");
-const starterEquipment = [...new Set(programs.flat().map(([name])=>name))];
+const starterEquipment = [...new Set(programs.flat())];
+function movementKey(name){return guides[name]?.family||name}
+function exerciseLabel(name){return guides[name]?.legacy?name+" · тренажёр не указан":name}
 function newEntryId(){
   if(typeof crypto.randomUUID==="function")return crypto.randomUUID();
   const bytes=crypto.getRandomValues(new Uint8Array(16));
@@ -33,20 +35,24 @@ function plan(s,date){
  const p=s.profile, day=new Date(date).getDay();
  const strengthDays=past.filter(w=>w.exercises.some(e=>e.sets.some(t=>t.done)));
  const cycle=p.fixed?Number((p.legDays||[2]).includes(day)?0:1):strengthDays.length%2;
- let list=programs[cycle].map(x=>x[0]).filter(n=>p.equipment.includes(n));
+ const available=[...new Set(p.equipment)].filter(n=>!guides[n]?.legacy||
+   !p.equipment.some(other=>!guides[other]?.legacy&&movementKey(other)===movementKey(n)));
+ let list=programs[cycle].map(name=>available.includes(name)?name:
+   available.find(n=>movementKey(n)===movementKey(name))).filter(Boolean);
  if(p.focus) list.sort((a,b)=>Number(b.toLowerCase().includes(p.focus.toLowerCase()))-Number(a.toLowerCase().includes(p.focus.toLowerCase())));
  if(cycle===0) list.sort((a,b)=>Number(/ног/i.test(b))-Number(/ног/i.test(a)));
  const count=Math.max(1,Math.min(5, Math.floor(p.minutes/10)+([p.goal,...(p.extra||[])].includes("Набор мышц")?1:0)));
  // Fill missing movements from the member's actual equipment, favouring different muscle groups.
- const remaining=[...new Set(p.equipment)].filter(n=>!list.includes(n));
- while(list.length<count && remaining.length){
+ while(list.length<count){
+   const remaining=available.filter(n=>!list.some(chosen=>movementKey(chosen)===movementKey(n)));
+   if(!remaining.length)break;
    const coverage=n=>list.filter(x=>guides[x]?.group===guides[n]?.group).length;
    remaining.sort((a,b)=>coverage(a)-coverage(b));
-   list.push(remaining.shift());
+   list.push(remaining[0]);
  }
  if(strengthDays.length && count>=3 && list.length>=count){
    const slot=count-1,group=guides[list[slot]]?.group;
-   const options=p.equipment.filter(n=>guides[n]?.group===group&&!list.slice(0,slot).includes(n));
+   const options=available.filter(n=>guides[n]?.group===group&&!list.slice(0,slot).some(chosen=>movementKey(chosen)===movementKey(n)));
    // Keep the main lifts comparable and vary the last accessory within the same group.
    const lastDone=name=>strengthDays.find(w=>w.exercises.some(e=>e.name===name&&e.sets.some(t=>t.done)))?.date||"";
    if(options.length>1)list[slot]=options.sort((a,b)=>lastDone(a).localeCompare(lastDone(b)))[0];

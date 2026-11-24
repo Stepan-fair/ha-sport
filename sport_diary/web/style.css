@@ -18,6 +18,7 @@ article{background:#fff;border:1px solid #d7dfd6;border-radius:20px;margin:16px 
 @media(max-width:480px){.timegroup{grid-template-columns:1fr;gap:1px}.timegroup>strong{padding:3px 0}.exerciseRow span{min-width:0;overflow-wrap:anywhere}}
 .calendar .meal.partial{background:transparent;border:2px solid #ffab50}.legend{flex-wrap:wrap}.calGrid .calDay:focus-visible,.calTop button:focus-visible{outline:2px solid #fff;outline-offset:-2px}.exerciseRow .grip:focus-visible,.dose .grip:focus-visible{outline:3px solid #245d9a}
 [hidden]{display:none!important}
+.exercisePicker{display:flex;max-width:100%;margin-right:0}.exercisePicker select,.exercisePicker input{width:100%;min-width:0;font-size:16px}
 .exerciseGuide,.exerciseNote,.equipmentGroup{margin:8px 0;border:1px solid var(--line);border-radius:12px;overflow-wrap:anywhere}
 .exerciseGuide>summary,.exerciseNote>summary,.equipmentGroup>summary{padding:11px 15px;min-height:44px;font-weight:650;color:var(--pine)}
 .exerciseGuide[open],.exerciseNote[open],.equipmentGroup[open]{background:#f7f9f3}

@@ -53,6 +53,19 @@
  const uuidV4=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
  verify(uuidV4.test(draft?.id)&&uuidV4.test(mealId)&&draft.id!==mealId,"distinct v4 IDs for workout and meal");
  const started=draft.id;
+ verify($("exercise-new").tagName==="SELECT"&&!el("input[list]"),"native catalogue without datalist");
+ const machine45="Жим ногами под 45°",horizontal="Жим ногами горизонтальный";
+ verify([machine45,horizontal].every(n=>Array.from($("exercise-new").options).some(o=>o.value==="name:"+n)),"both distinct presses can be picked");
+ const sizeBefore=draft.exercises.length;
+ verify($("exercise-new").getBoundingClientRect().right<=innerWidth&&$("exercise-new").getBoundingClientRect().height>=44,"picker fits viewport and has a touch target");
+ set("exercise-new","name:"+horizontal);await actionButton("choose-new");
+ verify(draft.exercises.length===sizeBefore+1&&draft.exercises.at(-1).name===horizontal,"add horizontal machine");
+ const horizontalCard=el('[data-action="save-note-'+sizeBefore+'"]').closest('article');
+ verify(!horizontalCard.querySelector("img")&&!!horizontalCard.querySelector('a[href*="horizontal-leg-press"]'),"horizontal guide shows a matching machine");
+ verify(noteKey(horizontal)!==noteKey(machine45) && noteKey(horizontal)!==noteKey("Жим ногами"),"variant notes have independent keys");
+ set("exercise-"+sizeBefore,"name:"+machine45);await actionButton("choose-"+sizeBefore);
+ verify(draft.exercises.at(-1).name===machine45,"replace with 45 degree sled");
+ await actionButton("remove-"+sizeBefore);
  await go(2);await actionButton("repeat-meal-"+mealId);await actionButton("meal");
  await actionButton("remove-meal-"+state.meals[1].id);await go(1);
  verify(draft.id===started&&state.meals.length===1&&draft.exercises.length>0,"deleting food leaves an active workout intact");
@@ -109,7 +122,7 @@
  await actionButton("finish");verify(state.workouts.length===1&&state.workouts[0].exercises[0].sets[0].reps===10&&state.workouts[0].cardio.length===2,"correct workout including both cardio blocks");
  verify(el(".exerciseNote textarea").value===textNote&&el(".exerciseNote button").hidden,"note is available in history");
  await go(3);verify(!el("#height")&&!!el('[data-action="settings"]'),"profile results");await actionButton("settings");
- verify(!visible("profile")&&!visible("save-supps")&&!visible("weight")&&document.querySelectorAll("input[name=eq]").length===28,"grouped catalogue and clean forms");
+ verify(!visible("profile")&&!visible("save-supps")&&!visible("weight")&&document.querySelectorAll("input[name=eq]").length===Object.values(guides).filter(g=>!g.legacy).length,"grouped catalogue and clean forms");
  set("height","310");await actionButton("profile");verify(!state.profile.height&&visible("profile"),"invalid profile keeps edits");
  set("height","180");
  await click('[name="uses"][value="Креатин"]');await click('[name="uses"][value="Омега-3"]');await actionButton("save-supps");
@@ -146,15 +159,16 @@
  }
  await go(1);set("start",day+"T12:00");await actionButton("start");
  verify(draft.exercises.length===1&&draft.exercises[0].name==="Молотковые сгибания","autoplan respects single non-template exercise");
- set("exercise-new",first);await actionButton("choose-new");
+ set("exercise-new","name:"+first);await actionButton("choose-new");
  const personal=el('[data-action="save-note-1"]').closest("details");personal.querySelector("summary").click();
  verify(personal.querySelector("textarea").value===textNote,"note recalled for new workout");
  enter(personal.querySelector("textarea"),"x".repeat(501));await actionButton("save-note-1");
  verify(state.profile.exerciseNotes[noteKey(first)]===textNote&&visible("save-note-1"),"overlong note rejected");
  enter(personal.querySelector("textarea"),"");await actionButton("save-note-1");
  verify(!Object.hasOwn(state.profile.exerciseNotes,noteKey(first))&&!visible("save-note-1"),"clearing an existing note persists");
- set("exercise-new","   ");await actionButton("choose-new");verify(draft.exercises.length===2,"empty custom exercise rejected");
- set("exercise-new","Тяга · личный блок");await actionButton("choose-new");
+ set("exercise-new","custom");verify(!$("custom-new").closest("label").hidden&&document.activeElement===$("custom-new"),"custom input visible and focused");
+ set("custom-new","   ");await actionButton("choose-new");verify(draft.exercises.length===2,"empty custom exercise rejected");
+ set("custom-new","Тяга · личный блок");await actionButton("choose-new");
  const customName=draft.exercises[2].name;
  const custom=el('[data-action="save-note-2"]').closest("details");custom.querySelector("summary").click();
  enter(custom.querySelector("textarea"),"5");
@@ -167,9 +181,16 @@
  verify(writes===1&&state.profile.exerciseNotes[noteKey(customName)]==="5"&&visible("save-note-2")&&el('[data-action="save-note-2"]').closest("details").querySelector("textarea").value==="6","double submit and in-flight typing");
  await actionButton("save-note-2");
  window.confirm=()=>true;await actionButton("cancel");verify(state.workouts.length===1&&!draft,"cancel keeps history");
- await actionButton("start");verify(Array.from($("exerciseNames").options,o=>o.value).includes(customName),"custom note survives cancelled session");
- set("exercise-new",customName);await actionButton("choose-new");
+ await actionButton("start");verify(Array.from($("exercise-new").options,o=>o.value).includes("name:"+customName),"custom note survives cancelled session");
+ set("exercise-new","name:"+customName);await actionButton("choose-new");
  verify(el('[data-action="save-note-1"]').closest("details").querySelector("textarea").value==="6","custom exercise restores its saved note");
+ set("exercise-new","name:"+horizontal);await actionButton("choose-new");
+ let added=draft.exercises.length-1;
+ const horizontalNote=el('[data-action="save-note-'+added+'"]').closest("details");
+ horizontalNote.querySelector("summary").click();enter(horizontalNote.querySelector("textarea"),"Сиденье горизонтального 6");
+ await actionButton("save-note-"+added);
+ set("exercise-new","name:"+machine45);await actionButton("choose-new");added=draft.exercises.length-1;
+ verify(!el('[data-action="save-note-'+added+'"]').closest("details").querySelector("textarea").value&&state.profile.exerciseNotes[noteKey(horizontal)]==="Сиденье горизонтального 6","horizontal seat note is saved separately from the 45 degree sled");
  await actionButton("cancel");
  const visited=[];
  request=async(path,body)=>{

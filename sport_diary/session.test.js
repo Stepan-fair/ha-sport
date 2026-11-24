@@ -31,10 +31,11 @@ test("Старт, изменение числа подходов, отмена �
  await run('action("down-0")');
  assert.equal(run("draft.exercises[1].name"),original);
  assert.equal(run("draft.exercises[1].sets[0].done"),true);
- node("exercise-new").value="Моё упражнение";
+ node("exercise-new").value="custom";
+ node("custom-new").value="Моё упражнение";
  await run('action("choose-new")');
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
- node("exercise-0").value="Подъём гантелей в стороны";
+ node("exercise-0").value="name:Подъём гантелей в стороны";
  await run('action("choose-0")');
  assert.equal(run("draft.exercises[0].name"),"Подъём гантелей в стороны");
  await run('action("remove-0")');
@@ -43,4 +44,16 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
  await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.length,1);
  assert.equal(entries.has("profile/person2"),false);
+ const oldExercise={name:"Жим ногами",previous:"",sets:[{kg:72,reps:9,done:true,easy:false}]};
+ const oldDay="2026-01-02",oldDraft={id:"old-open",date:oldDay+"T10:00",exercises:[oldExercise],cardio:[{},{}]};
+ const legacy={rev:7,data:{profile:{equipment:["Жим ногами"],exerciseNotes:{"exercise:жим ногами":"Сиденье 3"}},
+   workouts:[{...oldDraft,id:"old-saved",date:"2026-01-01T10:00",end:"2026-01-01T11:00",cardio:[]}]}};
+ entries.set("profile/person1",legacy);
+ drafts.set("sport:diary:draft:person1:"+oldDay,JSON.stringify(oldDraft));
+ run('selectDay("2026-01-02")');await run("load()");
+ assert.deepEqual(JSON.parse(run("JSON.stringify(draft)")),oldDraft);
+ assert.match(run('workout()'),/Жим ногами · тренажёр не указан/);
+ assert.match(run('notePanel("Жим ногами",0)'),/Сиденье 3/);
+ assert.doesNotMatch(run('notePanel("Жим ногами горизонтальный",0)'),/Сиденье 3/);
+ assert.equal(entries.get("profile/person1").rev,7);
 });

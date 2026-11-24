@@ -7,7 +7,7 @@ WEB = Path(__file__).resolve().parent / "web"
 PHOTO_SOURCE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/"
 CATALOG = json.loads((WEB / "catalog.json").read_text(encoding="utf8"))
 PHOTO_PATHS = {
-    f"{item['photo']}/{frame}.jpg" for item in CATALOG.values() for frame in (0, 1)
+    f"{item['photo']}/{frame}.jpg" for item in CATALOG.values() if item.get("photo") for frame in (0, 1)
 }
 
 
