@@ -1,0 +1,31 @@
+name: Check sport app
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m unittest discover -s sport_diary -p test_sport.py
+      - run: node --test sport_diary/logic.test.js sport_diary/session.test.js
+      - run: docker build -t sport-test sport_diary
+      - name: Verify the bundled exercise photographs
+        run: docker run --rm sport-test python -c 'import photos; assert all((photos.WEB / "photos" / name).read_bytes().startswith(bytes.fromhex("FFD8")) for name in photos.PHOTO_PATHS)'
+      - name: Start image and read profile inside container
+        run: |
+          docker run -d --name sport-test sport-test
+          for attempt in {1..15}; do
+            if docker exec sport-test python -c 'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8099/profile/person1", timeout=2))["rev"] == 0'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs sport-test
+          exit 1
