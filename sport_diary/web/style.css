@@ -33,6 +33,10 @@ article{background:#fff;border:1px solid #d7dfd6;border-radius:20px;margin:16px 
 .exerciseNote>button{margin:0 15px 12px}.equipmentGroup>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(215px,100%),1fr));gap:0 12px}
 .equipmentGroup .check{min-height:44px;margin:0}.exerciseGuide summary:focus-visible,.exerciseNote summary:focus-visible,.equipmentGroup summary:focus-visible{outline-offset:-3px}
 .eqCount{font-size:13px;font-weight:500;color:var(--muted)}.saveError{color:#853923}
+.foodMatch{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.foodMatch button{min-height:44px;text-align:left}.foodMatch a{display:inline-block;padding:8px 0}
+.scaleBinding{margin:12px 0;padding:12px 14px;background:var(--soft,#edf3e7);border-radius:12px;overflow-wrap:anywhere}
+.scaleBinding p{margin:4px 0}
 .profileSaveBar{position:sticky;bottom:8px;display:flex;justify-content:flex-end;pointer-events:none}
 .profileSaveBar:has(button[hidden]){display:none}.profileSaveBar button{pointer-events:auto;box-shadow:0 3px 12px #193a3030}
 @media(max-width:620px){.profileSaveBar{bottom:calc(69px + env(safe-area-inset-bottom))}}

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from package import LOCAL_REQUEST
 from test_sport import Sport
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent
 EDGE = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft/Edge/Application/msedge.exe"
@@ -18,13 +19,14 @@ FETCH = """
 const exchanges = [];
 window.fetch = async function(path, options={}) {
   const body = options.body ? JSON.parse(options.body) : null;
-  const profiles = [{id:"person1",name:"Первый"}, {id:"person2",name:"Второй ❤️"}];
+  const profiles = [{id:"person1",name:"Первый",weightEntity:"sensor.test_scale_one"}, {id:"person2",name:"Второй ❤️",weightEntity:""}];
   const visible = limitedAccount ? profiles.slice(1) : profiles;
   let status=200, reply;
   if(path==="profiles") reply=visible;
   else if(path.startsWith("food?")) return new Response("{}",{status:503});
   else if(!visible.some(p=>path.split("/")[1]===p.id)){status=403;reply={}}
-  else if(path.startsWith("weights/")) reply=[];
+  else if(path.startsWith("weights/")) reply=path==="weights/person1"?
+    [{kg:78.5,date:"2001-01-01T09:00:00+00:00",source:"ha",entity:"sensor.test_scale_one"}]:[];
   else {
     const key="qa:"+path;
     const old=JSON.parse(localStorage.getItem(key)||'{"rev":0,"data":{}}');
@@ -42,10 +44,15 @@ def check_exchanges(rows, limited):
     fixture = Sport()
     fixture.setUp()
     try:
+        from server import DATA
+        settings = {**fixture.settings, "person1_weight": "sensor.test_scale_one"}
+        (DATA / "options.json").write_text(json.dumps(settings), encoding="utf8")
         user = "u2" if limited else "u1"
-        for i, row in enumerate(rows):
-            status, content = fixture.call("/"+row["path"], row["body"], user=user)
-            assert (status, json.loads(content)) == (row["status"], row["reply"]), (i,row["path"],status)
+        sample = {"state":"78.5","last_updated":"2001-01-01T09:00:00Z","attributes":{"unit_of_measurement":"kg"}}
+        with patch("server.core", return_value=sample):
+            for i, row in enumerate(rows):
+                status, content = fixture.call("/"+row["path"], row["body"], user=user)
+                assert (status, json.loads(content)) == (row["status"], row["reply"]), (i,row["path"],status)
         who = "person2" if limited else "person1"
         saved = fixture.profile(who)["data"]
         assert len(saved["workouts"])==1 and len(saved["meals"])==1 and len(saved["supps"])==2
@@ -97,7 +104,7 @@ def check(width, height, pointer, limited=False):
         check_exchanges(rows, limited)
         print("Verified",len(rows),"browser requests against handler and SQLite",flush=True)
         reload_test="""<script>setTimeout(()=>{
-          const ok=selectedDay===local().slice(0,10)&&!expanded&&!manualTime&&!manualPeriod
+          const ok=selectedDay===local().slice(0,10)&&!expanded&&!manualTime
               &&state.meals.length===1&&state.supps.length===2&&state.workouts.length===1&&state.weights[0]?.kg===74.5
               &&(limitedAccount?who==="person2"&&$("who").hidden:who==="person1"&&!$("who").hidden);
           parent.document.getElementById("out").textContent=ok?"reload passed":"reload failed";

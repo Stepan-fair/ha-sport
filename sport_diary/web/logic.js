@@ -17,12 +17,27 @@ function newEntryId(){
 function noteKey(name){
  return "exercise:" + name.normalize("NFC").trim().replace(/\s+/g," ").toLocaleLowerCase("ru");
 }
-function measurementAt(s,date,scale=[]){
+const periods=["Утро","День","Вечер","Ночь"];
+const periodStart={"Ночь":"00:00","Утро":"06:00","День":"12:00","Вечер":"18:00"};
+function period(date){
+ const hour=Number(date.slice(11,13));
+ return hour<6?"Ночь":hour<12?"Утро":hour<18?"День":"Вечер";
+}
+function doseEntry(name,day,slot,clock,now){
+ if(!periods.includes(slot))throw Error("Выбери время суток для «"+name+"».");
+ if(clock&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(clock)||period(day+"T"+clock)!==slot)){
+   throw Error("Время для «"+name+"» должно попадать в период «"+slot+"». Можно оставить только период.");
+ }
+ if(now&&day+"T"+(clock||periodStart[slot])>now)throw Error("Приём «"+name+"» ещё в будущем. Проверь день и период.");
+ return {date:clock?day+"T"+clock:day,period:slot,names:[name]};
+}
+function measurementAt(s,date,scale=[],preferredEntity=""){
  const until=Date.parse(date);
  let best=null,bestTime=-Infinity;
+ const priority=row=>preferredEntity&&row?.source==="ha"&&row.entity===preferredEntity?2:row?.source==="manual"?1:0;
  for(const w of [...scale,...s.weights]){
    const at=Date.parse(w.date);
-   const eligible=at>bestTime||at===bestTime&&(w.source==="manual"||best?.source!=="manual");
+   const eligible=at>bestTime||at===bestTime&&priority(w)>=priority(best);
    if(Number.isFinite(at)&&at<=until&&eligible&&Number.isFinite(w.kg)&&w.kg>0&&w.kg<700){
      best=w;bestTime=at;
    }
@@ -112,4 +127,4 @@ function schedule(name,slot){
  if(label==="Протеин"&&slot!=="Отдых")return [({"Утром":"Утро","Днём":"День","Вечером":"Вечер"})[slot],"После зала, если белковой еды не хватает. Можно с другим приёмом пищи."];
  return [item[2],item[3]];
 }
-if(typeof module!=="undefined") module.exports={plan,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot};
+if(typeof module!=="undefined") module.exports={plan,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry};

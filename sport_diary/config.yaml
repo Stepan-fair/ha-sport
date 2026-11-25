@@ -1,5 +1,5 @@
 name: Спорт
-version: "0.5.3-dev.1"
+version: "0.5.3"
 slug: sport_diary
 description: Тренировки, питание и дневник для двух профилей
 arch: [amd64, aarch64]
@@ -14,18 +14,18 @@ panel_title: Спорт
 homeassistant_api: true
 options:
   person1_name: "Профиль 1"
-  person2_name: "Профиль 2"
   person1_user: ""
-  person2_user: ""
-  person1_can_open_both: true
   person1_weight: ""
+  person2_name: "Профиль 2"
+  person2_user: ""
   person2_weight: ""
+  person1_can_open_both: true
 schema:
   person1_name: str
-  person2_name: str
   person1_user: str?
+  person1_weight: str?
+  person2_name: str
   person2_user: str?
+  person2_weight: str?
   person1_can_open_both: bool
   shared_diaries: bool?
-  person1_weight: str?
-  person2_weight: str?

@@ -1,0 +1,25 @@
+configuration:
+  person1_name:
+    name: First profile · display name
+    description: Name shown in the diary and profile switcher. Emoji are supported.
+  person1_user:
+    name: First profile · HA user ID
+    description: Open Settings → People → Users, select the first account and copy its user ID here. A login name or person entity will not work.
+  person1_weight:
+    name: First profile · weight entity (optional)
+    description: Under Settings → Devices & services → Entities copy the first person's body-weight sensor ID, for example sensor.body_weight_1. An input_number with a mass unit also works.
+  person2_name:
+    name: Second profile · display name
+    description: Name shown for the second person. Emoji are supported.
+  person2_user:
+    name: Second profile · HA user ID
+    description: Copy the second account's ID from Settings → People → Users. This user opens only their own diary. Leave empty if there is no second account.
+  person2_weight:
+    name: Second profile · weight entity (optional)
+    description: Use this person's body-weight entity, for example sensor.body_weight_2. Leave empty to record measurements manually.
+  person1_can_open_both:
+    name: Allow the first user to open both diaries
+    description: When enabled the first user can view and edit both profiles. The second user always has access only to their own diary.
+  shared_diaries:
+    name: Legacy sharing option
+    description: Older versions used this field. Use the first user's access switch above to configure sharing.

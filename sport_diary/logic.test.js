@@ -2,6 +2,43 @@ const test=require("node:test");
 const assert=require("node:assert/strict");
 const {plan,atTime,total}=require("./web/logic.js");
 const catalogue=require("./web/catalog.json");
+const {doseEntry,measurementAt}=require("./web/logic.js");
+test("Дата из календаря, период из карточки и необязательное точное время",()=>{
+ const day="2026-11-24",now=day+"T13:15";
+ assert.deepEqual(doseEntry("А",day,"Утро","",now),{date:day,period:"Утро",names:["А"]});
+ assert.equal(doseEntry("А",day,"День","12:30",now).date,day+"T12:30");
+ assert.throws(()=>doseEntry("А",day,"Утро","02:53",now));
+ assert.throws(()=>doseEntry("А",day,"Вечер","",now));
+ assert.throws(()=>doseEntry("А",day,"День","13:16",now));
+ assert.throws(()=>doseEntry("А","2026-11-25","Ночь","",now));
+ assert.throws(()=>doseEntry("А",day,"По назначению","",now));
+});
+test("Привязанные весы имеют приоритет при совпадении времени, более свежий ручной ввод сохраняется",()=>{
+ const date="2026-11-24T08:00:00Z",entity="sensor.test_weight";
+ const ha={kg:71,date,source:"ha",entity},manual={kg:72,date,source:"manual"},s={weights:[manual]};
+ assert.equal(measurementAt(s,date,[ha],entity),ha);
+ assert.equal(measurementAt(s,date,[ha],""),manual);
+ assert.equal(measurementAt(s,"2026-11-23", [ha],entity),null);
+ s.weights.push({...manual,date:"2026-11-24T08:01:00Z",kg:73});
+ assert.equal(measurementAt(s,"2026-11-25",[ha],entity).kg,73);
+});
+const {localFoods, importedFood, distinctFoods}=require("./web/foods.js");
+test("Локальный поиск учитывает жирность, порядок слов, сохранённые карточки и штрихкоды",()=>{
+ const lookup=q=>localFoods(q,[],[]);
+ assert.equal(lookup("творог").length,4);
+ assert.equal(lookup("0.1% ТВОРОГ")[0].nut[0],55);
+ assert.equal(lookup("кефир 5%").length,0);
+ assert.equal(lookup("йогурт греческий")[0].nut[1],7);
+ const packaged=lookup("творог 5")[0];
+ const saved={...packaged,nut:[120,18,5,2]};
+ assert.equal(distinctFoods(localFoods("ТВОРОГ 5%",[saved],[]))[0],saved);
+ const remote=importedFood({code:"12345678",product_name_ru:"Молоко",nutriments:{proteins_100g:0}});
+ assert.deepEqual(remote.nut,[null,0,null,null]);
+ const other={...remote,code:"12345679"};
+ assert.deepEqual(distinctFoods([remote,other,remote]),[remote,other]);
+ assert.deepEqual(localFoods("12345678",[remote,other],[]),[remote]);
+ assert.equal(importedFood({brands:"Без названия"}),null);
+});
 const s={profile:{goal:"Сила",equipment:["Жим ногами"],minutes:45,step:2.5},weights:[{date:"2026-11-20",kg:90},{date:"2026-11-24",kg:95}],workouts:[]};
 test("Последний вес по моменту события сохраняется независимо от давности и порядка ввода",()=>{
  const scale=[{kg:94,date:"2026-01-01T10:00:00+03:00",source:"ha"},{kg:91,date:"2026-06-01T07:00:00Z",source:"ha"}];

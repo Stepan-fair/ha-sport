@@ -45,8 +45,8 @@ def core(path):
 
 
 def weight(profile):
-    entity = options().get(profile + "_weight")
-    if not entity or not re.fullmatch(r"(?:sensor|input_number)\.[a-z0-9_]+", entity):
+    entity = measurements.weight_entity(options().get(profile + "_weight"))
+    if not entity:
         return None
     return measurements.reading(core("states/" + entity))
 
@@ -91,11 +91,12 @@ class Handler(BaseHTTPRequestHandler):
             if (who in PROFILES and who not in allowed) or (url.path == "/food" and not allowed):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
-            return self.reply(200, [{"id": p, "name": settings.get(p+"_name") or ("Профиль "+str(i+1))}
+            return self.reply(200, [{"id": p, "name": settings.get(p+"_name") or ("Профиль "+str(i+1)),
+                                     "weightEntity": settings.get(p+"_weight") or ""}
                                     for i,p in enumerate(PROFILES)
                                     if p in allowed])
         if url.path == "/weights/"+who and who in PROFILES and self.command == "GET":
-            return self.reply(200, measurements.readings(DATA/"sport.db",who))
+            return self.reply(200, measurements.profile_readings(DATA/"sport.db", who, settings.get(who+"_weight"), core))
         if url.path == "/profile/" + who and who in ("person1", "person2"):
             with closing(sqlite3.connect(DATA / "sport.db")) as db:
                 db.execute("CREATE TABLE IF NOT EXISTS profile(who TEXT PRIMARY KEY,rev INTEGER,body TEXT)")
@@ -127,18 +128,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, weight(who))
         if url.path == "/food":
             q = parse_qs(url.query).get("q", [""])[0].strip()[:100]
-            fields = "code,product_name,brands,nutriments,nutrition_data_per"
+            fields = "code,product_name,product_name_ru,brands,nutriments,nutrition_data_per"
             if re.fullmatch(r"\d{8,14}", q):
                 try:
                     item = fetch("https://world.openfoodfacts.org/api/v2/product/" + q + ".json?fields=" + fields)
                 except HTTPError as error:
                     if error.code != 404:
                         raise
+                    error.close()
                     item = {}
                 return self.reply(200, [item["product"]] if item.get("product") else [])
             if len(q) < 2:
                 return self.reply(200, [])
-            params = urlencode(dict(search_terms=q, json=1, page_size=15, fields=fields, action="process"))
+            params = urlencode(dict(search_terms=q, search_simple=1, lc="ru", json=1, page_size=15, fields=fields, action="process"))
             return self.reply(200, fetch("https://ru.openfoodfacts.org/cgi/search.pl?" + params)["products"])
         if url.path == "/catalog.js":
             script = "const exerciseCatalog = " + json.dumps(CATALOG) + "; const exercisePhotoBase = 'photos/';"
@@ -156,7 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         static = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js","text/javascript"),
-                  "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript")}
+                  "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript"),
+                  "/foods.js": ("foods.js","text/javascript")}
         if url.path in static:
             name, mime = static[url.path]
             return self.reply(200, (ROOT / "web" / name).read_bytes(), mime)

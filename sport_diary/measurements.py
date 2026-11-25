@@ -19,7 +19,9 @@ def utc_stamp(value):
 
 
 def reading(state):
-    unit = state.get("attributes", {}).get("unit_of_measurement")
+    if not isinstance(state, dict) or not isinstance(state.get("attributes"), dict):
+        return None
+    unit = state["attributes"].get("unit_of_measurement")
     factor = {"kg": 1, "кг": 1, "g": 0.001, "lb": 0.45359237, "lbs": 0.45359237}.get(unit)
     date = utc_stamp(state.get("last_updated") or state.get("last_changed"))
     try:
@@ -44,21 +46,43 @@ def readings(path, who):
         return [{"date": date, "kg": kg, "source": "ha", "entity": entity} for date, kg, entity in rows]
 
 
+def weight_entity(value):
+    entity = value.strip() if isinstance(value, str) else ""
+    return entity if re.fullmatch(r"(?:sensor|input_number)\.[a-z0-9_]+", entity) else ""
+
+
+def store_readings(db, who, entity, states, now, boundary=None):
+    for state in states:
+        item = reading(state)
+        if item and item["date"] <= now.isoformat() and item["date"] != boundary:
+            db.execute("INSERT INTO scale VALUES(?,?,?,?) ON CONFLICT(who,entity,date) DO UPDATE SET kg=excluded.kg",
+                       (who, entity, item["date"], item["kg"]))
+
+
+def profile_readings(path, who, configured_entity, core):
+    saved = readings(path, who)
+    entity = weight_entity(configured_entity)
+    if not entity or any(row["entity"] == entity for row in saved):
+        return saved
+    # A newly bound sensor may already have a reading before the next poll.
+    try:
+        current = core("states/" + entity)
+    except (OSError, ValueError, TypeError, KeyError):
+        return saved
+    with closing(open_history(path)) as db, db:
+        store_readings(db, who, entity, [current], datetime.now(timezone.utc))
+    return readings(path, who)
+
+
 def collect(path, who, entity, core, now=None):
-    if not isinstance(entity,str) or not re.fullmatch(r"(?:sensor|input_number)\.[a-z0-9_]+", entity):
+    entity = weight_entity(entity)
+    if not entity:
         return
     now = now or datetime.now(timezone.utc)
-    def store(db, states, start=None):
-        for state in states:
-            item = reading(state)
-            if not item or item["date"] > now.isoformat() or item["date"] == start:
-                continue
-            db.execute("INSERT INTO scale VALUES(?,?,?,?) ON CONFLICT(who,entity,date) DO UPDATE SET kg=excluded.kg",
-                       (who,entity,item["date"],item["kg"]))
     with closing(open_history(path)) as db:
         current = core("states/" + entity)
         with db:
-            store(db, [current])
+            store_readings(db, who, entity, [current], now)
         cursor = db.execute("SELECT date FROM scale_cursor WHERE who=? AND entity=?", (who,entity)).fetchone()
         start = datetime.fromisoformat(cursor[0]) if cursor else now - timedelta(days=30)
         if now-start < timedelta(minutes=10):
@@ -71,7 +95,7 @@ def collect(path, who, entity, core, now=None):
             history = core("history/period/" + quote(lower, safe="") + "?" + query)
             with db:
                 for series in history:
-                    store(db, (s for s in series if s.get("entity_id")==entity), lower)
+                    store_readings(db, who, entity, (s for s in series if s.get("entity_id")==entity), now, lower)
                 db.execute("INSERT OR REPLACE INTO scale_cursor VALUES(?,?,?)", (who,entity,end.isoformat()))
             start = end
 

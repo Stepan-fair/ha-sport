@@ -10,6 +10,7 @@ from threading import Thread
 import unittest
 from pathlib import Path
 from urllib.request import urlopen, Request
+from urllib.parse import urlencode, urlsplit, parse_qs
 from urllib.error import HTTPError, URLError
 import server
 
@@ -50,15 +51,57 @@ class Sport(unittest.TestCase):
         self.assertEqual(self.profile("person1")["data"], body["data"])
 
     def test_web_entry_points(self):
-        for path in ["/", "/app.js", "/logic.js", "/catalog.js", "/style.css"]:
+        for path in ["/", "/app.js", "/logic.js", "/catalog.js", "/foods.js", "/style.css"]:
             self.assertEqual(self.call(path)[0], 200)
         self.assertEqual(self.call("/weight/person2"), (200, b"null"))
 
     def test_ingress_profile_permissions(self):
+        settings = {**self.settings, "person1_weight": "sensor.test_first", "person2_weight": "input_number.test_second"}
+        (server.DATA / "options.json").write_text(json.dumps(settings), encoding="utf8")
+        with patch.object(server, "core", return_value={}):
+            self.check_profile_permissions(settings)
+
+    def test_food_text_barcode_and_unavailable_provider(self):
+        path = "/food?" + urlencode({"q": "творог"})
+        item = {"code": "4600000000008", "product_name_ru": "Творог"}
+        with patch.object(server, "fetch", return_value={"products": [item]}) as fetch:
+            self.assertEqual(self.call(path, user="other")[0], 403)
+            fetch.assert_not_called()
+            self.assertEqual(json.loads(self.call(path, user="u2")[1]), [item])
+            query = parse_qs(urlsplit(fetch.call_args.args[0]).query)
+            self.assertEqual(query["search_terms"], ["творог"])
+            self.assertIn("product_name_ru", query["fields"][0])
+        with patch.object(server, "fetch", return_value={"product": item}) as fetch:
+            self.assertEqual(json.loads(self.call("/food?q=4600000000008")[1]), [item])
+            self.assertIn("/api/v2/product/4600000000008.json", fetch.call_args.args[0])
+        with patch.object(server, "fetch", side_effect=HTTPError("fixture", 404, "", {}, None)):
+            self.assertEqual(self.call("/food?q=4600000000008"), (200, b"[]"))
+        with patch.object(server, "fetch", side_effect=TimeoutError()):
+            self.assertEqual(self.call(path)[0], 503)
+
+    def test_weight_entity_normalization(self):
+        self.assertEqual(measurements.weight_entity("  input_number.scale_1 "), "input_number.scale_1")
+        for invalid in ("person.someone", "Весы", "", None):
+            self.assertEqual(measurements.weight_entity(invalid), "")
+
+    def test_first_open_reads_configured_scale_before_poll_and_retains_it(self):
+        settings = {**self.settings, "person2_weight": "input_number.weight_b"}
+        sample = {"last_updated":"2020-01-02T10:00:00Z","state":"60","attributes":{"unit_of_measurement":"kg"}}
+        with patch.object(server, "options", return_value=settings), patch.object(server, "core", return_value=sample) as core:
+            saved = json.loads(self.call("/weights/person2", user="u2")[1])
+            core.assert_called_once_with("states/input_number.weight_b")
+            self.assertEqual([(row["kg"], row["source"]) for row in saved], [(60, "ha")])
+            core.side_effect = TimeoutError()
+            self.assertEqual(json.loads(self.call("/weights/person2", user="u2")[1]), saved)
+            self.assertEqual(json.loads(self.call("/weights/person1")[1]), [])
+            core.assert_called_once()
+
+    def check_profile_permissions(self, settings):
         for user, permitted in [("u1", ["person1", "person2"]), ("u2", ["person2"]), ("other", []), ("", [])]:
             with self.subTest(user=user):
                 profiles = json.loads(self.call("/profiles", user=user)[1])
                 self.assertEqual([p["id"] for p in profiles], permitted)
+                self.assertEqual([p["weightEntity"] for p in profiles], [settings[p + "_weight"] for p in permitted])
                 if "person2" in permitted:
                     self.assertEqual(profiles[-1]["name"], "Второй ❤️")
                 for who in server.PROFILES:
