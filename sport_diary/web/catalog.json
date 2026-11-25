@@ -23,6 +23,8 @@
     "primary": "Квадрицепсы, большие ягодичные",
     "secondary": "Большая приводящая мышца",
     "reference": "https://www.panattasport.com/en/fit-evo/horizontal-leg-press/",
+    "visualSource": "Panatta",
+    "visualUrl": "https://www.panattasport.nl/wp-content/uploads/2019/01/pic-1fe085.jpg",
     "family": "leg-press"
   },
   "Жим ногами под 45°": {
@@ -165,6 +167,8 @@
     "primary": "Широчайшие",
     "secondary": "Бицепсы, средняя и нижняя части трапециевидных",
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-front-lat-pulldown",
+    "visualSource": "Hammer Strength",
+    "visualUrl": "https://shop.lifefitness.com/cdn/shop/files/hammer-strength-iso-lateral-front-lat-pulldown-charcoal-black-1000x1000_1200x1200.jpg?v=1748945158",
     "family": "pulldown"
   },
   "Горизонтальная тяга": {
@@ -203,6 +207,8 @@
     "primary": "Широчайшие, ромбовидные, средняя трапеция",
     "secondary": "Бицепсы, задние дельты",
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-row",
+    "visualSource": "Hammer Strength",
+    "visualUrl": "https://shop.lifefitness.com/cdn/shop/products/hammer-strength-plate-loaded-iso-later-rowing-machine-charcoal-charcoal-front-1000x1000_1200x1200.jpg?v=1748945275",
     "family": "row"
   },
   "Тяга гантели с опорой": {
@@ -263,6 +269,8 @@
     "primary": "Большие грудные, с акцентом на ключичную часть",
     "secondary": "Трицепсы, передние дельты",
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-incline-press",
+    "visualSource": "Hammer Strength",
+    "visualUrl": "https://shop.lifefitness.com/cdn/shop/files/Hammer_Strength_-_Plate_Loaded_-_Iso-Lateral_-_Incline_Press_IL-IPH_3_d21c410a-39c6-4986-a867-e3fd208fca93.jpg?v=1748945164&width=900",
     "family": "chest-press"
   },
   "Жим лёжа": {
@@ -412,6 +420,8 @@
     "group": "Ноги",
     "photo": null,
     "reference": "https://www.strengthlog.com/smith-machine-hip-thrust/",
+    "visualSource": "StrengthLog",
+    "visualUrl": "https://i0.wp.com/www.strengthlog.com/wp-content/uploads/2024/12/smith-machine-hip-thrust.gif?resize=600%2C600&ssl=1",
     "station": "Smith Machine Hip Thrust · хип-траст со скамьёй",
     "recognize": "Ищи гриф на двух направляющих с крюками. Для этого варианта за грифом нужна устойчивая скамья с опорой под лопатки.",
     "setup": "Зафиксируй скамью от скольжения. На пустом тренажёре проверь высоту страховочных упоров и как вернуть гриф на крюки. Положи мягкую накладку на гриф в области сгиба бёдер.",

@@ -90,7 +90,7 @@
  set("exercise-new","name:"+horizontal);await actionButton("choose-new");
  verify(draft.exercises.length===sizeBefore+1&&draft.exercises.at(-1).name===horizontal,"add horizontal machine");
  const horizontalCard=el('[data-action="save-note-'+sizeBefore+'"]').closest('article');
- verify(!horizontalCard.querySelector("img")&&!!horizontalCard.querySelector('a[href*="horizontal-leg-press"]'),"horizontal guide shows a matching machine");
+ verify(!!horizontalCard.querySelector('img[data-photo*="1fe085"]')&&!!horizontalCard.querySelector('a[href*="horizontal-leg-press"]'),"horizontal guide shows a matching machine");
  verify(noteKey(horizontal)!==noteKey(machine45) && noteKey(horizontal)!==noteKey("Жим ногами"),"variant notes have independent keys");
  set("exercise-"+sizeBefore,"name:"+machine45);await actionButton("choose-"+sizeBefore);
  verify(draft.exercises.at(-1).name===machine45,"replace with 45 degree sled");
@@ -159,8 +159,18 @@
  owner.weightEntity="Весы";render();verify(el(".scaleBinding").textContent.includes("Проверь ID"),"invalid binding has a correction hint");
  owner.weightEntity=savedEntity;render();
  verify(!visible("profile")&&!visible("save-supps")&&!visible("weight")&&document.querySelectorAll("input[name=eq]").length===Object.values(guides).filter(g=>!g.legacy).length,"grouped catalogue and clean forms");
+ const pref=el(".exerciseChoice"),toggle=pref.querySelector("summary"),choice=pref.querySelector("input[name=eq]");
+ const previousChoice=choice.checked;
+ pref.closest(".equipmentGroup").open=true;
+ const prefImages=pref.querySelectorAll("img[data-photo]");
+ verify(prefImages.length>0&&[...prefImages].every(img=>!img.hasAttribute("src")),"profile guides defer image downloads");
+ prefImages.forEach(img=>img.dataset.photo=pixel);
+ toggle.focus();toggle.click();await frame();
+ verify(pref.querySelector("details").open&&prefImages[0].naturalWidth>0&&pref.querySelectorAll("dt").length===5&&choice.checked===previousChoice&&!visible("profile"),"profile guide opens without marking an exercise or dirtying the form");
+ toggle.click();
+ verify($("energy-mode").value==="auto"&&!$("energy-auto").hidden,"automatic energy is available by default");
  set("height","310");await actionButton("profile");verify(!state.profile.height&&visible("profile"),"invalid profile keeps edits");
- set("height","180");
+ set("height","180");set("birth","1990-01-01");set("sex","Мужской");
  const four=["Омега-3","Витамин D3","Креатин","Протеин"];
  for(const name of four)await click('[name="uses"][value="'+name+'"]');
  await actionButton("save-supps");
@@ -257,6 +267,8 @@
  const another=shiftDay(day,-1);selectDay(another);render();await actionButton("rest-log");verify(state.restLog[another],"rest is recorded on selected date");await actionButton("rest-log");
  selectDay(day);render();await actionButton("report-day");
  verify(el('[data-action="period-day"]').getAttribute("aria-pressed")==="true"&&!!el(".rewardBanner"),"open day report and personal score");
+ const dayEnergy=diaryReport(state,scale,boundScale(),day,"day").rows[0];
+ verify(dayEnergy.active>0&&dayEnergy.maintenance===dayEnergy.base+dayEnergy.active&&el('[data-disclosure="energy"]').textContent.includes(numberRu(dayEnergy.maintenance)),"profile energy combines the saved weight and completed workout without separate setup");
  for(const period of ["week","month","year"]){await actionButton("period-"+period);verify(el('[data-action="period-'+period+'"]').getAttribute("aria-pressed")==="true","switch "+period)}
  await click('[data-disclosure="exercises"]>summary');
  verify(!!$("report-exercise")&&el('[data-disclosure="exercises"] svg')&&el('.periodPick').getBoundingClientRect().right<=innerWidth,"exercise charts fit viewport");

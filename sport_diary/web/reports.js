@@ -1,4 +1,11 @@
 "use strict";
+const energyLogic=typeof module==="undefined"?{workoutEnergy,measurementAt}:require("./logic.js");
+function autoEnergyRule(profile,stored){
+  if(stored?.mode==="manual"||stored?.mode==="off")return stored;
+  const data=stored||profile||{};
+  return {mode:"auto",height:Number(data.height),birth:data.birth,age:Number(data.age),sex:data.sex,
+    factor:stored?.mode==="auto"?stored.factor:1.2};
+}
 // All report dates are calendar days in the diary's local time.
 function reportDate(d){
   return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-");
@@ -24,8 +31,8 @@ function dailyWeights(state,scale,preferred){
 function maintenance(rule,day,kg){
   if(!rule)return null;
   if(rule.mode==="manual")return Number.isFinite(rule.kcal)&&rule.kcal>0?rule.kcal:null;
-  if(rule.mode!=="estimate"||!kg||!(rule.height>0)||!rule.birth||!["Мужской","Женский"].includes(rule.sex)||![1.2,1.4,1.6,1.8].includes(rule.factor))return null;
-  const age=Number(day.slice(0,4))-Number(rule.birth.slice(0,4))-Number(day.slice(5)<rule.birth.slice(5));
+  if(!["auto","estimate"].includes(rule.mode)||!kg||!(rule.height>0)||!["Мужской","Женский"].includes(rule.sex)||![1.2,1.4,1.6,1.8].includes(rule.factor))return null;
+  const age=rule.birth?Number(day.slice(0,4))-Number(rule.birth.slice(0,4))-Number(day.slice(5)<rule.birth.slice(5)):rule.age;
   if(!(age>=19))return null;
   const estimate=(10*kg+6.25*rule.height-5*age+(rule.sex==="Мужской"?5:-161))*rule.factor;
   return estimate>0?Math.round(estimate):null;
@@ -34,7 +41,7 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
   const start=reportStart(anchor,period),end=anchor<today?anchor:today;
   const days=new Map();
   function entry(day){
-    if(!days.has(day))days.set(day,{day,meals:0,kcal:0,unknown:0,workouts:0,sets:0,reps:0,volume:0,minutes:0,points:0,awards:[],exercises:new Map()});
+    if(!days.has(day))days.set(day,{day,meals:0,kcal:0,unknown:0,workouts:0,sessions:[],sets:0,reps:0,volume:0,minutes:0,points:0,awards:[],exercises:new Map()});
     return days.get(day);
   }
   for(const meal of state.meals||[]){
@@ -44,7 +51,7 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
   }
   for(const w of state.workouts||[]){
     const day=w.date.slice(0,10);if(day>end)continue;
-    const d=entry(day);d.workouts++;
+    const d=entry(day);d.workouts++;d.sessions.push(w);
     const minutes=(Date.parse(w.end)-Date.parse(w.date))/60000;
     if(Number.isFinite(minutes)&&minutes>0)d.minutes+=minutes;
     for(const ex of w.exercises||[]){
@@ -59,6 +66,7 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
     }
   }
   for(const [day,v] of Object.entries(state.restLog||{}))if(day<=end&&v)entry(day).rest=true;
+  for(let day=start;day<=end;day=shiftDay(day,1))entry(day);
   const sorted=[...days.values()].sort((a,b)=>a.day.localeCompare(b.day));
   const rules=Object.entries(state.energyRules||{}).sort(([a],[b])=>a.localeCompare(b));
   const weightRows=dailyWeights(state,scale,entity).filter(w=>w.day<=end);
@@ -72,7 +80,21 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
     while(wi<weightRows.length&&weightRows[wi].day<=d.day)weight=weightRows[wi++];
     while(ri<rules.length&&rules[ri][0]<=d.day)rule=rules[ri++][1];
     d.complete=!!state.foodComplete?.[d.day]&&d.meals>0;
-    d.balance=null;d.maintenance=maintenance(rule,d.day,weight?.kg);
+    const usableRule=autoEnergyRule(state.profile,rule);
+    const kg=weight?.kg||d.sessions.find(w=>Number(w.kg)>0)?.kg;
+    d.balance=null;d.base=maintenance(usableRule,d.day,kg);d.maintenance=d.base;
+    d.active=null;d.energyMode=usableRule.mode;
+    if(usableRule.mode==="auto"&&d.base!=null){
+      let extra=0;
+      for(const w of d.sessions){
+        const bodyKg=Number(w.kg)>0?w.kg:energyLogic.measurementAt(state,w.startedAt||w.date,scale||[],entity)?.kg;
+        const session=energyLogic.workoutEnergy(w,bodyKg);
+        if(session.gross==null){extra=null;break}
+        extra+=Math.max(0,session.gross-d.base*session.minutes/1440);
+      }
+      d.active=extra==null?null:Math.round(extra);
+      d.maintenance=d.active==null?null:d.base+d.active;
+    }
     if(d.complete&&!d.unknown&&d.maintenance!=null)d.balance=Math.round(d.kcal)-d.maintenance;
     const key=monday(d.day);
     const week=weeks.get(key)||{food:0,gym:0,activity:0,joint:false,repeat:false,moves:new Set()};
@@ -101,4 +123,4 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
     periodPoints:sum("points"),points,achievements:[...achievements],week:weeks.get(monday(anchor))||{food:0,gym:0,activity:0,repeat:false,joint:false},
     elapsed:start>end?0:1+Math.round((Date.parse(end+"T12:00Z")-Date.parse(start+"T12:00Z"))/86400000)};
 }
-if(typeof module!=="undefined")module.exports={diaryReport,reportStart,maintenance,dailyWeights};
+if(typeof module!=="undefined")module.exports={diaryReport,reportStart,maintenance,dailyWeights,autoEnergyRule};

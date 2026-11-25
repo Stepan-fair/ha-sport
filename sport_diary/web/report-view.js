@@ -40,13 +40,17 @@ function rewardBody(r){
     disclosure("ledger","Начисления за период · "+r.periodPoints, r.periodPoints?reportTable(["Дата","За что","Баллы"],r.rows.slice().reverse().flatMap(d=>d.awards.map(a=>[shortDay(d.day),a.label,"+"+a.value]))):'<p>Пока нет начислений.</p>');
 }
 function energyBody(r){
-  const missing=r.elapsed-r.balances.length;
+  const missing=r.elapsed-r.balances.length,day=r.rows.find(d=>d.day===r.end);
   let msg=r.balance===null?"Пока нет дней, для которых можно оценить баланс.":'Оценка за '+r.balances.length+' дн. из '+r.elapsed+'.';
-  if(missing>0)msg+=" Для остальных нужны заполненный день питания, калорийность каждой порции и настройка суточного расхода.";
-  return reportMetrics([["Сумма дефицита",r.balance==null?"—":numberRu(r.deficit)+" ккал"],["Сумма профицита",r.balance==null?"—":numberRu(r.surplus)+" ккал"],["Съедено по известным порциям",r.meals>r.unknown?numberRu(r.kcal)+" ккал":"—"],["Средний баланс в учтённый день",r.balance==null?"—":signed(Math.round(r.balance/r.balances.length))+" ккал"]])+
-    '<p>'+esc(msg)+'</p><p class="muted">Баланс = записанное питание − оценка полного суточного расхода. Расход уже включает обычные тренировки.</p>'+
+  if(missing>0)msg+=" Для остальных нужны заполненный день питания, калорийность каждой порции и данные для оценки расхода.";
+  if(day?.energyMode==="auto"&&day.base==null)msg+=" Для авторасчёта нужны рост, пол, возраст от 19 лет и вес, известный на выбранную дату.";
+  return (day?reportMetrics([["Расход на "+shortDay(day.day),day.maintenance==null?"—":"≈ "+numberRu(day.maintenance)+" ккал"],
+    [day.energyMode==="manual"?"Введено за сутки":"Обычный день",day.base==null?"—":numberRu(day.base)+" ккал"],
+    ["Добавка за зал",day.active==null?"—":"+"+numberRu(day.active)+" ккал"]]):"")+
+    reportMetrics([["Сумма дефицита",r.balance==null?"—":numberRu(r.deficit)+" ккал"],["Сумма профицита",r.balance==null?"—":numberRu(r.surplus)+" ккал"],["Съедено по известным порциям",r.meals>r.unknown?numberRu(r.kcal)+" ккал":"—"],["Средний баланс в учтённый день",r.balance==null?"—":signed(Math.round(r.balance/r.balances.length))+" ккал"]])+
+    '<p>'+esc(msg)+'</p><p class="muted">Баланс = записанное питание − оценка полного суточного расхода. Авторасчёт складывает обычный день и дополнительные калории записанных занятий. Ручное значение задаёт полный расход.</p>'+
     graph(r.balances.map(d=>[d.day,d.balance]),"Баланс по заполненным дням","ккал")+
-    (r.rows.some(d=>d.meals)?disclosure("food-history","Питание по дням",reportTable(["Дата","Съедено, ккал","Расход, ккал","Баланс"],r.rows.filter(d=>d.meals).map(d=>[shortDay(d.day),d.unknown?"неполные КБЖУ":numberRu(d.kcal),d.maintenance??"—",d.balance==null?"—":signed(d.balance)]))):"");
+    (r.rows.length?disclosure("food-history","Расход и питание по дням",reportTable(["Дата","Съедено, ккал","Расход, ккал","Баланс"],r.rows.map(d=>[shortDay(d.day),!d.meals?"—":d.unknown?"неполные КБЖУ":numberRu(d.kcal),d.maintenance??"—",d.balance==null?"—":signed(d.balance)]))):"");
 }
 function exerciseBody(r){
   if(!r.exerciseNames.length)return '<p>Пока нет выполненных подходов за выбранный период.</p>';
@@ -76,20 +80,20 @@ function resultsPage(){
     disclosure("workouts-list","История тренировок · "+history.length,history.map(w=>btn("history-"+esc(w.id),esc(w.date.replace("T"," ")))).join("")||"<p>В этом периоде занятий нет.</p>");
 }
 function dailyRecap(){
-  const r=diaryReport(state,[],null,selectedDay,"day"),d=r.rows[0];
+  const r=diaryReport(state,scale,boundScale(),selectedDay,"day"),d=r.rows[0];
   const rest=state.restLog?.[selectedDay];
-  return card("Итог дня",reportMetrics([["Питание",d?.meals?(d.complete?"Заполнено":d.meals+" порц."):"—"],["Тренировка",r.workouts?(r.sets?r.sets+" подх.":"Записано"):rest?"Отдых":"—"],["Баллы","+"+r.periodPoints]])+
+  return card("Итог дня",reportMetrics([["Питание",d?.meals?(d.complete?"Заполнено":d.meals+" порц."):"—"],["Тренировка",r.workouts?(r.sets?r.sets+" подх.":"Записано"):rest?"Отдых":"—"],["Расход за сутки",d?.maintenance!=null?"≈ "+numberRu(d.maintenance)+" ккал":"—"],["Баллы","+"+r.periodPoints]])+
     btn("report-day","Посмотреть итог")+(!r.workouts&&selectedDay<=local().slice(0,10)?btn("rest-log",rest?"Снять отметку отдыха":"Отметить день отдыха"):""));
 }
 function activeEnergyRule(){
-  return Object.entries(state.energyRules||{}).filter(([day])=>day<=selectedDay).sort(([a],[b])=>b.localeCompare(a))[0]?.[1]||{};
+  return Object.entries(state.energyRules||{}).filter(([day])=>day<=selectedDay).sort(([a],[b])=>b.localeCompare(a))[0]?.[1]||null;
 }
 function reportSettings(){
-  const rule=activeEnergyRule();
+  const rule=autoEnergyRule(state.profile,activeEnergyRule());
   const fieldSelect=(id,title,values,value)=>'<label>'+title+'<select id="'+id+'">'+Object.entries(values).map(([k,v])=>'<option value="'+k+'" '+(k===String(value)?"selected":"")+'>'+esc(v)+'</option>').join("")+'</select></label>';
   return card("Личная мотивация",fieldSelect("reward-track","Что показывать первым",tracks,reportName())+'<p class="muted">Оба вида достижений доступны всегда. У каждого профиля свой счёт.</p>'+btn("save-track","Сохранить выбор",true))+
     card("Оценка расхода энергии",'<p>Настройка действует с '+esc(dayLabel(selectedDay))+'. Для прошлых записей выбери дату начала в календаре.</p>'+
-    fieldSelect("energy-mode","Суточный расход",{off:"Не оценивать",estimate:"Оценить по профилю",manual:"Указать свой расход"},rule.mode||"off")+
-    '<div id="energy-auto" '+(rule.mode==="estimate"?"":"hidden")+'>'+fieldSelect("energy-factor","Обычная активность с учётом зала",{"1.2":"1,2 · преимущественно сидя","1.4":"1,4 · небольшая активность","1.6":"1,6 · умеренная активность","1.8":"1,8 · высокая активность"},rule.factor||1.4)+'<p class="muted">Приближённая оценка по формуле Миффлина — Сан Жеора. Используются сохранённые рост, дата рождения, пол и последний вес на каждый день.</p></div>'+
+    fieldSelect("energy-mode","Суточный расход",{auto:"Автоматически по профилю и тренировкам",manual:"Указать полный расход",off:"Не оценивать"},rule.mode)+
+    '<div id="energy-auto" '+(rule.mode==="auto"?"":"hidden")+'>'+fieldSelect("energy-factor","Обычная активность вне зала",{"1.2":"1,2 · преимущественно сидя","1.4":"1,4 · небольшая активность","1.6":"1,6 · умеренная активность","1.8":"1,8 · высокая активность"},rule.factor||1.2)+'<p class="muted">По умолчанию берём малоподвижный день и последний известный вес на дату. Учитываем длительность силовой части с выполненными подходами и интервалы дорожки. Коэффициент можно уточнить под работу и ходьбу.</p></div>'+
     '<div id="energy-manual" '+(rule.mode==="manual"?"":"hidden")+'>'+field("daily-maint","Полный расход за сутки, ккал","number",rule.kcal??"",'min="1" step="1"')+'</div>'+btn("save-energy","Сохранить расход",true));
 }

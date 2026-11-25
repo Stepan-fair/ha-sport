@@ -77,14 +77,17 @@ def scale_features():
     template = """
     {%- set ns = namespace(rows=[]) -%}
     {%- for e in integration_entities('xiaomi_ble') + integration_entities('ble_monitor') + integration_entities('esphome') -%}
-      {%- if e.startswith('sensor.') -%}
+      {%- if e.startswith(('sensor.','binary_sensor.')) -%}
         {%- set model = device_attr(e,'model') or '' -%}
         {%- set key = (model ~ ' ' ~ e)|lower -%}
         {%- if 'scale' in key or 'xmtzc' in key or 'весы' in key or 'весы' in (state_attr(e,'friendly_name') or '')|lower -%}
           {%- set unit = (state_attr(e,'unit_of_measurement') or '')|lower -%}
           {%- set kind = 'impedance' if unit in ['ω','ohm','ом'] or 'impedance' in e else
+                         'removed' if 'weight_removed' in e else
                          'unstable' if 'non_stabilized' in e or 'non_stabilised' in e else
-                         'weight' if unit in ['kg','кг','g','lb','lbs'] else '' -%}
+                         'stable' if 'stabilized_weight' in e or 'stabilised_weight' in e else
+                         'signal' if 'rssi' in e or unit == 'dbm' else
+                         'weight' if unit in ['kg','кг','g','lb','lbs'] or 'weight' in e else '' -%}
           {%- if kind -%}
             {%- set item = [model,kind] -%}
             {%- if item not in ns.rows -%}{%- set ns.rows = ns.rows + [item] -%}{%- endif -%}
@@ -101,7 +104,7 @@ def scale_features():
     if not isinstance(rows, list):
         raise ValueError("Invalid scale discovery response")
     return {"sensors":[{"model":model[:80], "kind":kind} for model,kind in rows
-                       if isinstance(model,str) and kind in ("weight","unstable","impedance")]}
+                       if isinstance(model,str) and kind in ("weight","stable","unstable","impedance","removed","signal")]}
 
 
 def weight(profile):

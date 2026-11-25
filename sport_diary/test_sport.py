@@ -217,6 +217,14 @@ class Sport(unittest.TestCase):
             measurements.collect(server.DATA/"sport.db","person2","sensor.scale",core,now)
         self.assertEqual(json.loads(self.call("/weights/person2")[1])[0]["kg"],72.5)
 
+    def test_scale_discovery_returns_capabilities_without_any_readings(self):
+        kinds = ("weight", "stable", "unstable", "impedance", "removed", "signal")
+        fields = [["Mi Scale V2", kind] for kind in (*kinds, "unrecognized")]
+        response = io.BytesIO(json.dumps(fields).encode())
+        with patch.dict(server.os.environ, {"SUPERVISOR_TOKEN": "fixture"}), patch.object(server, "urlopen", return_value=response):
+            rows = server.scale_features()["sensors"]
+        self.assertEqual(rows, [{"model": "Mi Scale V2", "kind": kind} for kind in kinds])
+
     def test_scale_inspection_and_shared_source(self):
         same={**self.settings, "person1_weight":"sensor.scale", "person2_weight":"sensor.scale"}
         with patch.object(server,"options",return_value=same), patch.object(server,"core") as core:

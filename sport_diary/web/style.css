@@ -27,6 +27,7 @@ article{background:#fff;border:1px solid #d7dfd6;border-radius:20px;margin:16px 
 .guideBody dt{margin-top:12px;font-weight:700}.guideBody dd{margin:2px 0}
 .guidePhotos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .guidePhotos figure{min-width:0;margin:0;padding:6px;border-radius:10px;background:#fff}
+.exerciseChoice{min-width:0;padding:8px 0;border-bottom:1px solid var(--line)}.exerciseChoice>.exerciseGuide{margin:4px 0 10px}.exerciseChoice>.exerciseGuide summary{min-height:44px}.exerciseChoice .guidePhotos{grid-template-columns:repeat(auto-fit,minmax(min(125px,100%),1fr))}
 .guidePhotos img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain}
 .guidePhotos figcaption,.guideBody>small{font-size:13px;color:var(--muted)}.retryPhoto{font-size:13px}
 .exerciseNote>label{display:grid;gap:5px;margin:0}.exerciseNote textarea{width:100%;resize:vertical;min-height:78px;font:inherit;padding:10px;border-radius:9px;border:1px solid var(--line);color:var(--ink)}

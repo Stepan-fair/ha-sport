@@ -35,7 +35,7 @@ function measurementAt(s,date,scale=[],preferredEntity=""){
  const until=Date.parse(date);
  let best=null,bestTime=-Infinity;
  const priority=row=>preferredEntity&&row?.source==="ha"&&row.entity===preferredEntity?2:row?.source==="manual"?1:0;
- for(const w of [...scale,...s.weights]){
+ for(const w of [...scale,...(s.weights||[])]){
    const at=Date.parse(w.date);
    const eligible=at>bestTime||at===bestTime&&priority(w)>=priority(best);
    if(Number.isFinite(at)&&at<=until&&eligible&&Number.isFinite(w.kg)&&w.kg>0&&w.kg<700){
@@ -88,17 +88,44 @@ function exerciseFor(name,p,past,date){
    });
    return {name,sets,plannedSets:targetSets,previous:completed.map(t=>t.kg+" × "+t.reps).join(", ")};
 }
+function treadmillMet(c){
+ const measuredSpeed=Number(c.speed);
+ const speed=measuredSpeed>0?measuredSpeed:Number(c.distance)/Number(c.seconds)*3.6;
+ if(!(speed>0&&speed<=30))return 3;
+ const grade=Math.max(0,Math.min(Number(c.incline)||0,30))/100;
+ const walking=kmh=>1+kmh*1000/60*(0.1+1.8*grade)/3.5;
+ const running=kmh=>1+kmh*1000/60*(0.2+0.9*grade)/3.5;
+ if(speed<=6)return walking(speed);
+ if(speed>=8.1)return running(speed);
+ // Gait is unknown between brisk walking and running. Interpolate the endpoints.
+ return walking(6)+(speed-6)/2.1*(running(8.1)-walking(6));
+}
+function workoutEnergy(w,bodyKg){
+ const kg=Number(w.kg)>0?Number(w.kg):Number(bodyKg);
+ const duration=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
+ const cardio=w.cardio||[],done=(w.exercises||[]).some(e=>(e.sets||[]).some(t=>t.done&&Number(t.reps)>0));
+ const treadmillMinutes=cardio.reduce((sum,c)=>sum+Number(c.seconds)/60,0);
+ if(!(duration>0)||!Number.isFinite(treadmillMinutes)||treadmillMinutes>duration||cardio.some(c=>!(Number(c.seconds)>0)))return {gross:null,minutes:0};
+ const strength=done?duration-treadmillMinutes:0;
+ const minutes=strength+treadmillMinutes;
+ if(!minutes||(!(kg>0)&&strength>0))return {gross:null,minutes};
+ const kcalPerMetMinute=3.5*kg/200;
+ let gross=strength>0?3.5*kcalPerMetMinute*strength:0;
+ for(const c of cardio){
+   if(c.kcal!=null&&c.kcal!==""&&Number.isFinite(Number(c.kcal))&&Number(c.kcal)>=0)gross+=Number(c.kcal);
+   else if(kg>0)gross+=treadmillMet(c)*kcalPerMetMinute*Number(c.seconds)/60;
+   else return {gross:null,minutes};
+ }
+ return {gross,minutes};
+}
 function total(w){
  const sets=w.exercises.flatMap(e=>e.sets).filter(t=>t.done);
- const minutes=(Date.parse(w.end)-Date.parse(w.date))/60000;
- const cardio=w.cardio.reduce((n,c)=>n+c.seconds/60,0);
- const strength=Math.max(0,minutes-cardio);
- const weight=w.kg;
+ const minutes=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
  const consoleEntries=w.cardio.filter(c=>c.kcal!=null&&c.kcal!=="");
  const consoleKcal=consoleEntries.reduce((sum,c)=>sum+Number(c.kcal),0);
- const complete=!!weight||(!sets.length&&consoleEntries.length===w.cardio.length&&w.cardio.length>0);
- const estimated=weight?Math.round((sets.length?strength*2.5*weight/60:0)+w.cardio.reduce((n,c)=>n+(c.kcal??(c.seconds/3600*weight*3)),0)):complete?consoleKcal:null;
- return {sets:sets.length,volume:sets.reduce((n,t)=>n+t.kg*t.reps,0),minutes:Math.round(minutes),estimated,consoleKcal,consoleCount:consoleEntries.length,points:10+Math.min(10,sets.length)};
+ const energy=workoutEnergy(w,w.kg);
+ return {sets:sets.length,volume:sets.reduce((n,t)=>n+t.kg*t.reps,0),minutes:Math.round(minutes),
+   estimated:energy.gross==null?null:Math.round(energy.gross),consoleKcal,consoleCount:consoleEntries.length,points:10+Math.min(10,sets.length)};
 }
 
 const supplements = {
@@ -127,4 +154,4 @@ function schedule(name,slot){
  if(label==="Протеин"&&slot!=="Отдых")return [({"Утром":"Утро","Днём":"День","Вечером":"Вечер"})[slot],"После зала, если белковой еды не хватает. Можно с другим приёмом пищи."];
  return [item[2],item[3]];
 }
-if(typeof module!=="undefined") module.exports={plan,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry};
+if(typeof module!=="undefined") module.exports={workoutEnergy,plan,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry};

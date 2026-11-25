@@ -106,7 +106,7 @@ async function load(){
  restoreDraft();
  render();
  await refreshScale(user).catch(()=>{});
- if(who===user&&tab===3&&!busy)render();
+ if(who===user&&(tab===0||tab===3)&&!busy)render();
 }
 async function initialize(){
  people=await request("profiles");
@@ -158,12 +158,7 @@ function trackForm(binding,restore=false){
    const value=fieldValue(el);
    if(value!==base)patch[id]=value;else delete patch[id];
  }
- let refreshEstimate=false;
- if(binding.button.dataset.action==="save-energy"&&$("energy-mode").value==="estimate"){
-   const rule=activeEnergyRule(),p=state.profile;
-   refreshEstimate=rule.mode==="estimate"&&(rule.birth!==p.birth||rule.sex!==p.sex||rule.height!==Number(p.height));
- }
- binding.button.hidden=!Object.keys(patch).length&&!refreshEstimate;
+ binding.button.hidden=!Object.keys(patch).length;
  rememberForm(binding.key,binding.button.hidden?null:patch);
 }
 function bindSaveButtons(){
@@ -213,12 +208,15 @@ function updateSupplementButton(){
 function guideFor(name){
  return Object.hasOwn(guides,name)?guides[name]:null;
 }
-function guidePanel(name){
+function guidePanel(name,settings=false){
  const g=guideFor(name);
- if(!g)return '<p class="muted">Своё упражнение · можно сохранить личную настройку.</p>';
- if(g.legacy)return '<p class="muted">В этой записи не указан тренажёр. В новой тренировке можно выбрать его точный вариант.</p>';
- const photos=g.photo?'<div class="guidePhotos">'+[0,1].map(i=>'<figure><img data-photo="'+esc(exercisePhotoBase+g.photo+'/'+i+'.jpg')+'" alt="'+esc(name+(i?' — второе положение':' — первое положение'))+'" decoding="async"><figcaption>'+(i?'Положение 2':'Положение 1')+'</figcaption><button type="button" class="retryPhoto" hidden>Загрузить фото ещё раз</button></figure>').join("")+'</div><small>Пример оборудования · Free Exercise DB</small>':
-   '<p><a href="'+esc(g.reference)+'" target="_blank" rel="noopener noreferrer">Посмотреть пример упражнения или тренажёра ↗</a></p>';
+ if(!g||g.legacy){
+   const hint=g?"В старой записи не указан конкретный тренажёр. Выбери точный вариант в каталоге.":"Для своего упражнения можно сохранить личную настройку. Добавь в название вариант тренажёра.";
+   return settings?'<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Об упражнении</summary><p class="guideBody">'+hint+'</p></details>':'<p class="muted">'+hint+'</p>';
+ }
+ const frames=g.photo?[0,1].map(i=>[exercisePhotoBase+g.photo+'/'+i+'.jpg','Положение '+(i+1)]):[[g.visualUrl,'Пример · '+g.visualSource]];
+ const photos='<div class="guidePhotos">'+frames.map(([url,caption])=>'<figure><img data-photo="'+esc(url)+'" alt="'+esc(name+' · '+caption)+'" decoding="async" referrerpolicy="no-referrer"><figcaption>'+esc(caption)+'</figcaption><button type="button" class="retryPhoto" hidden>Загрузить фото ещё раз</button></figure>').join("")+'</div>'+
+   (g.photo?'<small>Пример оборудования · Free Exercise DB</small>':'<a href="'+esc(g.reference)+'" target="_blank" rel="noopener noreferrer">Открыть пример у '+esc(g.visualSource)+' ↗</a>');
  return '<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Фото и техника</summary><div class="guideBody"><h3>'+esc(g.station)+'</h3><p>'+esc(g.recognize)+'</p>'+photos+'<dl>'+
  [["Настройка",g.setup],["Движение",g.movement],["На что обратить внимание",g.avoid],["Основная нагрузка",g.primary],["Помогают или стабилизируют",g.secondary]].map(([title,body])=>'<dt>'+title+'</dt><dd>'+esc(body)+'</dd>').join("")+'</dl></div></details>';
 }
@@ -250,7 +248,7 @@ function exercisePreferences(profile){
    if(!groups.has(group))groups.set(group,[]);
    groups.get(group).push(name);
  }
- return '<h3>Доступные упражнения</h3><p class="muted">Отметь упражнения, которые можно выполнять в твоём зале. Из них составляется план.</p>'+Array.from(groups,([group,names])=>'<details class="equipmentGroup" data-disclosure="'+esc("equipment:"+group)+'"><summary>'+esc(group)+' <span class="eqCount"></span></summary><div>'+names.map(n=>'<div>'+check(exerciseLabel(n),'name="eq" value="'+esc(n)+'"',profile.equipment.includes(n))+'<label>Шаг, кг<input type="number" min="0" max="100" step="any" data-step-name="'+esc(noteKey(n))+'" value="'+esc(profile.exerciseSteps?.[noteKey(n)]??"")+'" placeholder="По профилю"></label></div>').join("")+'</div></details>').join("");
+ return '<h3>Доступные упражнения</h3><p class="muted">Отметь упражнения, которые можно выполнять в твоём зале. Из них составляется план.</p>'+Array.from(groups,([group,names])=>'<details class="equipmentGroup" data-disclosure="'+esc("equipment:"+group)+'"><summary>'+esc(group)+' <span class="eqCount"></span></summary><div>'+names.map(n=>'<div class="exerciseChoice">'+check(exerciseLabel(n),'name="eq" value="'+esc(n)+'"',profile.equipment.includes(n))+guidePanel(n,true)+'<label>Шаг, кг<input type="number" min="0" max="100" step="any" data-step-name="'+esc(noteKey(n))+'" value="'+esc(profile.exerciseSteps?.[noteKey(n)]??"")+'" placeholder="По профилю"></label></div>').join("")+'</div></details>').join("");
 }
 const bars='<i class="gripBars" aria-hidden="true"></i>';
 function planPanel(day){
@@ -435,7 +433,7 @@ function profile(){
  if(entity)scaleStatus=linked?'Привязана сущность <code>'+esc(entity)+'</code>':'Проверь ID сущности в конфигурации. Он должен начинаться с sensor. или input_number.';
  const conflict=people.find(p=>p.id===who)?.scaleConflict;
  const scaleHelp=conflict?"Обоим профилям назначена одна сущность. Выбери два разных персональных датчика, которые HA наполняет по диапазонам веса.":linked?(scale.some(w=>w.entity===entity)?"Вес подставляется автоматически. Более свежий ручной замер тоже учитывается.":"Пока нет показаний от этих весов. Проверь значение и единицу массы у сущности в HA."):"Привязать весы можно в Настройки HA → Приложения → Спорт → Конфигурация.";
- const binding='<div class="scaleBinding"><strong>Весы Home Assistant</strong><p>'+scaleStatus+'</p><small>'+scaleHelp+'</small>'+btn('scale-features','Проверить датчики весов в HA')+'<p id="scale-features" role="status"></p></div>';
+ const binding='<div class="scaleBinding"><strong>Весы Home Assistant</strong><p>'+scaleStatus+'</p><small>'+scaleHelp+'</small>'+btn('scale-features','Проверить датчики весов в HA')+'<p id="scale-features" role="status"></p>'+disclosure("mi-scale-guide","Какие данные даёт Mi Scale V2",'<p><b>Stabilized weight</b> — устойчивый вес. Именно его удобно распределять в HA по личным диапазонам. Быстрого взвешивания для этого достаточно.</p><p><b>Weight и impedance</b> — вес и сопротивление в омах от одного полного измерения. Весы должны успеть измерить сопротивление. Проценты жира и мышц были бы отдельными оценками.</p><p><b>Non-stabilized weight</b> — промежуточные значения, <b>weight removed</b> — снятие нагрузки, <b>RSSI</b> — качество сигнала Bluetooth.</p><a href="https://custom-components.github.io/ble_monitor/by_property#stabilized-weight" target="_blank" rel="noopener noreferrer">Описание Passive BLE Monitor ↗</a>')+'</div>';
  const manual=field("kg","Вес, кг","number","","step=any")+dt("wdate","Дата взвешивания")+btn("weight","Записать вес");
  const manualForm=linked?'<details class="equipmentGroup" data-disclosure="manual-weight"><summary>Внести отдельный замер вручную</summary><div>'+manual+'</div></details>':manual;
  return btn("results","← К результатам")+'<section class="profileEditor">'+card("Данные профиля",field("height","Рост, см","number",p.height)+field("birth","Дата рождения","date",p.birth||"")+'<label>Пол<select id="sex">'+options(["","Мужской","Женский"],p.sex)+'</select></label><p>'+metrics+'</p><p>Вес · '+(kg||"—")+' кг · '+esc(source)+'</p>'+binding+manualForm)+
@@ -447,7 +445,7 @@ const selected=n=>Array.from(document.querySelectorAll('input[name="'+n+'"]:chec
 function when(id){const d=val(id);if(d.slice(0,10)!==selectedDay)throw Error("Выбери день события в календаре.");if(!Number.isFinite(Date.parse(d))||Date.parse(d)>Date.now()+60000)throw Error("Укажи дату и время события в прошлом или сейчас.");return d}
 function syncEnergyFields(){
  const mode=$("energy-mode");if(!mode)return;
- if($("energy-auto"))$("energy-auto").hidden=mode.value!=="estimate";
+ if($("energy-auto"))$("energy-auto").hidden=mode.value!=="auto";
  if($("energy-manual"))$("energy-manual").hidden=mode.value!=="manual";
 }
 document.addEventListener("change",ev=>{
@@ -458,7 +456,7 @@ async function action(a){
  if(a==="scale-features"){
    const panel=$("scale-features");panel.textContent="Проверяю сущности…";
    try{
-     const data=await request("scale-info/"+who),labels={weight:"вес",unstable:"нестабильный вес",impedance:"импеданс"};
+     const data=await request("scale-info/"+who),labels={weight:"вес завершённого измерения",stable:"стабилизированный вес",unstable:"промежуточный вес",impedance:"импеданс (Ом)",removed:"снятие нагрузки",signal:"уровень сигнала Bluetooth (дБм)"};
      panel.textContent=data.demo?"Проверка доступна в установленном приложении HA.":data.sensors.length?
        data.sensors.map(x=>(x.model||"Весы")+" · "+labels[x.kind]).join(" / ")+". В личный дневник поступает вес с привязанной персональной сущности.":
        "У поддерживаемых интеграций не распознаны датчики весов. Привязку персонального веса можно использовать отдельно.";
@@ -482,8 +480,8 @@ async function action(a){
    if(mode==="manual"){
      rule.kcal=Number(val("daily-maint"));
      if(!Number.isSafeInteger(rule.kcal)||rule.kcal<=0)throw Error("Укажи суточный расход в ккал.");
-   }else if(mode==="estimate"){
-     Object.assign(rule,{birth:p.birth,height:Number(p.height),sex:p.sex,factor:Number(val("energy-factor"))});
+   }else if(mode==="auto"){
+     Object.assign(rule,{birth:p.birth,age:Number(p.age)||null,height:Number(p.height),sex:p.sex,factor:Number(val("energy-factor"))});
      if(maintenance(rule,day,70)==null)throw Error("Для оценки с 19 лет сначала сохрани дату рождения, рост и пол в профиле.");
    }else if(mode!=="off")return;
    await saveForm("save-energy",s=>{(s.energyRules||={})[day]=rule});render();return;
@@ -583,7 +581,14 @@ async function action(a){
  })}
  if(a==="profile"){const minutes=Number(val("minutes")),step=Number(val("step"));if(val("birth")&&Date.parse(val("birth"))>Date.now()||val("height")&&!(Number(val("height"))>0&&Number(val("height"))<300))throw Error("Проверь рост и дату рождения.");if(!Number.isFinite(minutes)||!Number.isFinite(step)||minutes<10||minutes>240||step<=0||step>20)throw Error("Проверь оборудование, длительность и шаг прибавки.");const exerciseSteps={};for(const f of document.querySelectorAll("[data-step-name]"))if(f.value!==""){if(!f.checkValidity())throw Error("Проверь шаг веса у упражнения.");exerciseSteps[f.dataset.stepName]=Number(f.value)}
    const week=Array.from({length:7},(_,i)=>val("week"+i));
-   await saveForm("profile",s=>Object.assign(s.profile,{week,exerciseSteps,height:val("height"),birth:val("birth"),sex:val("sex"),minutes,step,goal:val("goal"),focus:val("focus"),extra:selected("extra"),fixed:$("fixed").checked,legDays:selected("legday").map(Number),equipment:selected("eq")}))}
+   const prior=autoEnergyRule(state.profile,activeEnergyRule());
+   await saveForm("profile",s=>{Object.assign(s.profile,{week,exerciseSteps,height:val("height"),birth:val("birth"),sex:val("sex"),minutes,step,goal:val("goal"),focus:val("focus"),extra:selected("extra"),fixed:$("fixed").checked,legDays:selected("legday").map(Number),equipment:selected("eq")});
+     if(prior.mode==="auto"&&(prior.birth!==s.profile.birth||prior.sex!==s.profile.sex||prior.height!==Number(s.profile.height))){
+       const rules=s.energyRules||={};
+       if(!Object.keys(rules).some(key=>key<selectedDay)&&prior.birth&&prior.height&&prior.sex)rules["0001-01-01"]=prior;
+       rules[selectedDay]={mode:"auto",birth:s.profile.birth,age:Number(s.profile.age)||null,sex:s.profile.sex,height:Number(s.profile.height),factor:prior.factor};
+     }
+   })}
  if(a.startsWith("undo-supp-")){const name=decodeURIComponent(a.slice(10));if(!confirm("Снять отметку о приёме?"))return;await commit(s=>s.supps=s.supps.map(x=>x.date.startsWith(selectedDay)?{...x,names:x.names.filter(n=>canonicalSupp(n)!==canonicalSupp(name))}:x).filter(x=>x.names.length));render();return}
  if(a==="supp"){
  const choices=Array.from(document.querySelectorAll('input[name="supp"]:checked:not(:disabled)'),input=>{
@@ -650,7 +655,7 @@ if(typeof window!=="undefined"&&window.addEventListener){
      finally{busy=false;$("who").disabled=false}
    }
    const was=JSON.stringify(scale);await refreshScale(user).catch(()=>{});
-   if(who===user&&tab===3&&!busy&&was!==JSON.stringify(scale))render();
+   if(who===user&&(tab===0||tab===3)&&!busy&&was!==JSON.stringify(scale))render();
  };
  window.addEventListener("online",recover);document.addEventListener("visibilitychange",recover);
  window.setInterval(recover,60000);

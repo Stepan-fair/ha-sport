@@ -1,6 +1,6 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
-const {plan,atTime,total}=require("./web/logic.js");
+const {plan,atTime,total,workoutEnergy}=require("./web/logic.js");
 const catalogue=require("./web/catalog.json");
 const {doseEntry,measurementAt}=require("./web/logic.js");
 test("Дата из календаря, период из карточки и необязательное точное время",()=>{
@@ -55,7 +55,7 @@ test("Последний вес по моменту события сохран�
 test("Датированная масса и отдельные интервалы кардио",()=>{
  assert.equal(atTime(s,"2026-11-22"),90);
  const t=total({date:"2026-11-22T09:00",end:"2026-11-22T10:00",kg:90,exercises:[{sets:[{done:true,kg:10,reps:10}]}],cardio:[{seconds:600,kcal:50},{seconds:600,kcal:40}]});
- assert.equal(t.estimated,240);
+ assert.equal(t.estimated,311);
 });
 test("План опирается на завершённые подходы до выбранной даты",()=>{
  const e=plan(s,"2026-11-22")[0];
@@ -151,4 +151,22 @@ test("В каждой группе конкретные машины испол�
    assert.equal(planned[0].sets[0].kg,0);
    assert.equal(workouts[0].exercises[0].name,old);
  }
+});
+
+test("Treadmill incline, console priority and performed sets control energy independently",()=>{
+ const session={date:"2026-11-22T09:00",end:"2026-11-22T10:00",kg:80,
+   exercises:[{sets:[{done:false,reps:12,kg:100}]}],cardio:[{seconds:600,speed:5,incline:0}]};
+ const level=workoutEnergy(session);
+ assert.equal(level.minutes,10);
+ const machine=session.cardio[0];machine.incline=5;
+ assert.ok(workoutEnergy(session).gross>level.gross);
+ machine.speed=7;machine.incline=0;const transition=workoutEnergy(session).gross;
+ machine.incline=5;assert.ok(workoutEnergy(session).gross>transition);
+ machine.speed=0;machine.distance=1000;const fromDistance=workoutEnergy(session).gross;
+ machine.speed=6;assert.equal(workoutEnergy(session).gross,fromDistance);
+ machine.kcal=30;assert.deepEqual(workoutEnergy(session),{gross:30,minutes:10});
+ session.exercises[0].sets[0].done=true;
+ assert.equal(workoutEnergy(session).minutes,60);
+ assert.equal(Math.round(workoutEnergy(session).gross),275);
+ machine.seconds=4000;assert.equal(workoutEnergy(session).gross,null);
 });
