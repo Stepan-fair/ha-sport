@@ -1,5 +1,5 @@
 "use strict";
-const energyLogic=typeof module==="undefined"?{workoutEnergy,measurementAt}:require("./logic.js");
+const energyLogic=typeof module==="undefined"?{workoutEnergy,measurementAt,exerciseResultName}:require("./logic.js");
 function autoEnergyRule(profile,stored){
   if(stored?.mode==="manual"||stored?.mode==="off")return stored;
   const data=stored||profile||{};
@@ -51,18 +51,29 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
   }
   for(const w of state.workouts||[]){
     const day=w.date.slice(0,10);if(day>end)continue;
-    const d=entry(day);d.workouts++;d.sessions.push(w);
+    const d=entry(day);d.workouts++;
+    const finishDay=w.end?.slice(0,10);
+    if(finishDay===shiftDay(day,1)){
+      // Old entries store local wall times. Split the estimate in proportion to the elapsed local session.
+      const a=Date.parse(w.date),b=Date.parse(w.end),midnight=Date.parse(finishDay+"T00:00");
+      const first=b>a?Math.max(0,Math.min(1,(midnight-a)/(b-a))):1;
+      d.sessions.push({workout:w,fraction:first});
+      if(finishDay<=end&&first<1)entry(finishDay).sessions.push({workout:w,fraction:1-first});
+    }else d.sessions.push({workout:w,fraction:1});
     const minutes=(Date.parse(w.end)-Date.parse(w.date))/60000;
     if(Number.isFinite(minutes)&&minutes>0)d.minutes+=minutes;
     for(const ex of w.exercises||[]){
       const sets=(ex.sets||[]).filter(x=>x.done&&Number.isFinite(x.kg)&&x.kg>=0&&Number.isInteger(x.reps)&&x.reps>0);
       if(!sets.length)continue;
-      const item=d.exercises.get(ex.name)||{day,sets:0,reps:0,kg:0,volume:0,lines:[]};
+      const label=energyLogic.exerciseResultName(ex);
+      const item=d.exercises.get(label)||{day,sets:0,reps:0,kg:0,volume:0,lines:[]};
       for(const t of sets){
+        d.sets++;d.reps+=t.reps;d.volume+=t.kg*t.reps;
+        if(t.warmup)continue;
         item.sets++;item.reps+=t.reps;item.volume+=t.kg*t.reps;item.kg=Math.max(item.kg,t.kg);
-        item.lines.push(t.kg+" × "+t.reps);d.sets++;d.reps+=t.reps;d.volume+=t.kg*t.reps;
+        item.lines.push(t.kg+" × "+t.reps);
       }
-      d.exercises.set(ex.name,item);
+      if(item.sets)d.exercises.set(label,item);
     }
   }
   for(const [day,v] of Object.entries(state.restLog||{}))if(day<=end&&v)entry(day).rest=true;
@@ -81,16 +92,16 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
     while(ri<rules.length&&rules[ri][0]<=d.day)rule=rules[ri++][1];
     d.complete=!!state.foodComplete?.[d.day]&&d.meals>0;
     const usableRule=autoEnergyRule(state.profile,rule);
-    const kg=weight?.kg||d.sessions.find(w=>Number(w.kg)>0)?.kg;
+    const kg=weight?.kg||d.sessions.find(s=>Number(s.workout.kg)>0)?.workout.kg;
     d.balance=null;d.base=maintenance(usableRule,d.day,kg);d.maintenance=d.base;
     d.active=null;d.energyMode=usableRule.mode;
     if(usableRule.mode==="auto"&&d.base!=null){
       let extra=0;
-      for(const w of d.sessions){
+      for(const {workout:w,fraction} of d.sessions){
         const bodyKg=Number(w.kg)>0?w.kg:energyLogic.measurementAt(state,w.startedAt||w.date,scale||[],entity)?.kg;
         const session=energyLogic.workoutEnergy(w,bodyKg);
         if(session.gross==null){extra=null;break}
-        extra+=Math.max(0,session.gross-d.base*session.minutes/1440);
+        extra+=fraction*Math.max(0,session.gross-d.base*session.minutes/1440);
       }
       d.active=extra==null?null:Math.round(extra);
       d.maintenance=d.active==null?null:d.base+d.active;

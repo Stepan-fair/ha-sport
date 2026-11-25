@@ -72,6 +72,13 @@ def core(path):
     return fetch("http://supervisor/core/api/" + path, {"Authorization": "Bearer " + os.environ["SUPERVISOR_TOKEN"]})
 
 
+def profile_name(settings, profile):
+    name = settings.get(profile + "_name") or ("Профиль " + profile[-1])
+    if profile == "person2" and settings.get("person2_heart", True) and not any(c in name for c in "❤♥💕💖💗💙💚💜🧡🩷🤍🖤💛🤎🩵"):
+        name += " ❤️"
+    return name
+
+
 def scale_features():
     # Ask Core for capabilities only. Keep readings and entity identifiers inside HA.
     template = """
@@ -154,10 +161,10 @@ class Handler(BaseHTTPRequestHandler):
             if (who in PROFILES and who not in allowed) or (url.path == "/food" and not allowed):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
-            return self.reply(200, [{"id": p, "name": settings.get(p+"_name") or ("Профиль "+str(i+1)),
+            return self.reply(200, [{"id": p, "name": profile_name(settings, p),
                                      "weightEntity": settings.get(p+"_weight") or "",
                                      **({"scaleConflict": True} if measurements.scale_binding(settings, p)[1] else {})}
-                                    for i,p in enumerate(PROFILES)
+                                    for p in PROFILES
                                     if p in allowed])
         if url.path == "/weights/"+who and who in PROFILES and self.command == "GET":
             entity, shared = measurements.scale_binding(settings, who)

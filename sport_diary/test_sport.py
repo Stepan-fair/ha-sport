@@ -225,6 +225,12 @@ class Sport(unittest.TestCase):
             rows = server.scale_features()["sensors"]
         self.assertEqual(rows, [{"model": "Mi Scale V2", "kind": kind} for kind in kinds])
 
+    def test_heart_is_optional_and_never_repeated(self):
+        self.assertEqual(server.profile_name({"person2_name": "Второй"}, "person2"), "Второй ❤️")
+        self.assertEqual(server.profile_name({"person2_name": "Второй ❤"}, "person2"), "Второй ❤")
+        self.assertEqual(server.profile_name({"person2_name": "Второй", "person2_heart": False}, "person2"), "Второй")
+        self.assertEqual(server.profile_name({"person1_name": "Первый"}, "person1"), "Первый")
+
     def test_scale_inspection_and_shared_source(self):
         same={**self.settings, "person1_weight":"sensor.scale", "person2_weight":"sensor.scale"}
         with patch.object(server,"options",return_value=same), patch.object(server,"core") as core:

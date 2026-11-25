@@ -11,6 +11,9 @@ configuration:
   person2_name:
     name: Second profile · display name
     description: Name shown for the second person. Emoji are supported.
+  person2_heart:
+    name: Heart next to the second name
+    description: Append a heart to the second profile name if it has none.
   person2_user:
     name: Second profile · HA user ID
     description: Copy the second account's ID from Settings → People → Users. This user opens only their own diary. Leave empty if there is no second account.

@@ -35,6 +35,7 @@
  await actionButton("cal-next");verify(viewedMonth!==prev,"month navigation");
  await actionButton("cal-prev");const day=prev+"-20";await actionButton("date-"+day);
  await go(2);verify($("mealdate").value.startsWith(day)&&!$("foodday"),"food date");
+ await actionButton("food-complete");verify(!state.foodComplete?.[day]&&$("message").textContent.includes("порцию"),"empty day cannot be marked complete");
  set("query","ТВОРОГ");$("query").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));await frame();
  verify(results.length===5&&results[4].catalogItem&&results.every(x=>x.name.startsWith("Творог")),"built-in and indexed cottage cheeses on first use");
  await actionButton("search-online");verify($("matches").textContent.includes("ограничил число запросов")&&results.length===5,"provider rate limit keeps local choices");
@@ -58,7 +59,9 @@
  verify($("nut0").value==="117"&&$("nut1").value==="15","selected cottage cheese fills nutrition");
  set("amount","200");await actionButton("meal");
  verify($("entries").textContent.includes("234 ккал")&&state.meals[0].date.startsWith(day),"save 200 g of cottage cheese on selected day");
- window.confirm=()=>true;await actionButton("remove-meal-"+state.meals[0].id);
+ verify($("entries").textContent.includes("30 г белка")&&state.meals[0].origin==="Встроенный каталог","portion nutrients and source shown together");
+ await actionButton("food-complete");window.confirm=()=>true;await actionButton("remove-meal-"+state.meals[0].id);
+ verify(!state.foodComplete[day],"removing the last meal clears completion");
  verify(!visible("meal"),"clean meal hidden");set("product","Проба");set("amount","0");
  await actionButton("meal");verify(!state.meals.length&&visible("meal"),"invalid meal keeps edits");
  set("amount","100");set("product","");verify(!visible("meal"),"reverted meal hidden");
@@ -147,10 +150,13 @@
  request=async(path,body)=>{if(body)throw Error("LTE отключена");return realRequest(path,body)};
  await actionButton("finish");verify(!draft&&!state.workouts.length&&queued().length===1,"completed workout retained offline");
  request=async(path,body)=>{const reply=await realRequest(path,body);if(body)throw Error("Потерян ответ");return reply};
- await actionButton("sync-workouts");verify(queued().length===1,"lost acknowledgement retains queue");
+ await actionButton("sync-workouts");verify(queued().length===1&&$("content").textContent.includes("Итог тренировки"),"lost acknowledgement retains queue and workout summary");
  request=realRequest;await actionButton("sync-workouts");verify(!queued().length&&state.workouts.length===1&&state.workouts[0].end===day+"T11:00","historical workout saved once");
  verify($("content").textContent.includes("117 уд/мин")&&(limitedAccount?$("content").textContent.includes("45 ккал по консоли"):state.workouts[0].kg===78.5&&state.workouts[0].weightSample.source==="ha"),"workout uses the bound scale or falls back to console totals");
- const wid=state.workouts[0].id;await actionButton("edit-workout-"+wid);set("r0_0","10");
+ const wid=state.workouts[0].id;await actionButton("edit-workout-"+wid);
+ verify(!visible("finish"),"unchanged saved workout hides the save button");
+ const previousReps=$("r0_0").value;set("r0_0","7");verify(visible("finish"),"editing a saved set enables save");
+ set("r0_0",previousReps);verify(!visible("finish"),"undoing a set edit hides save again");set("r0_0","10");
  await actionButton("finish");verify(state.workouts.length===1&&state.workouts[0].exercises[0].sets[0].reps===10&&state.workouts[0].cardio.length===2,"correct workout including both cardio blocks");
  verify(el(".exerciseNote textarea").value===textNote&&el(".exerciseNote button").hidden,"note is available in history");
  await go(3);verify(!el("#height")&&!!el('[data-action="settings"]'),"profile results");await actionButton("settings");
@@ -170,7 +176,7 @@
  toggle.click();
  verify($("energy-mode").value==="auto"&&!$("energy-auto").hidden,"automatic energy is available by default");
  set("height","310");await actionButton("profile");verify(!state.profile.height&&visible("profile"),"invalid profile keeps edits");
- set("height","180");set("birth","1990-01-01");set("sex","Мужской");
+ set("height","180");set("workingSets","4");set("birth","1990-01-01");set("sex","Мужской");
  const four=["Омега-3","Витамин D3","Креатин","Протеин"];
  for(const name of four)await click('[name="uses"][value="'+name+'"]');
  await actionButton("save-supps");
@@ -229,6 +235,7 @@
  verify(who==="person2"&&state.meals[0].id===mealId,"restricted account retains its diary");
  }
  await go(1);set("start",day+"T12:00");await actionButton("start");
+ verify(draft.exercises[0].sets.length===4&&draft.exercises[0].prescription.length===4,"set preference and original plan survive reload");
  verify(draft.exercises.length===1&&draft.exercises[0].name==="Молотковые сгибания","autoplan respects single non-template exercise");
  set("exercise-new","name:"+first);await actionButton("choose-new");
  const personal=el('[data-action="save-note-1"]').closest("details");personal.querySelector("summary").click();

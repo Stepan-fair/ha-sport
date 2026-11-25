@@ -1,5 +1,6 @@
 """Prepare the reference photos for an HA image. Run once at build time."""
 import json
+from http.client import HTTPException
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -23,4 +24,8 @@ def download():
 
 
 if __name__ == "__main__":
-    download()
+    try:
+        download()
+    except (OSError, ValueError, HTTPException) as error:
+        # The server can redirect a missing image to its original catalogue URL.
+        print(f"Some photos will load on demand ({type(error).__name__}).")

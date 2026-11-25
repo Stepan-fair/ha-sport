@@ -61,7 +61,7 @@ test("План опирается на завершённые подходы д�
  const e=plan(s,"2026-11-22")[0];
  e.sets=e.sets.map(t=>({...t,kg:50,easy:true,done:true}));
  const history={...s,workouts:[{date:"2026-11-22",exercises:[e]}]};
- assert.equal(plan(history,"2026-11-24")[0].sets[0].kg,52.5);
+ assert.equal(plan(history,"2026-11-24")[0].sets[0].kg,50);
  assert.equal(plan(history,"2026-11-21")[0].sets[0].kg,0);
  e.sets[1].done=false;
  assert.equal(plan(history,"2026-11-24")[0].sets[0].kg,50);
@@ -69,8 +69,8 @@ test("План опирается на завершённые подходы д�
 test("Индивидуальный шаг тренажёра и индивидуальное расписание",()=>{
  const p={...s.profile,exerciseSteps:{"exercise:жим ногами":1}};
  const e=plan(s,"2026-11-20")[0];
- e.sets.forEach(t=>Object.assign(t,{kg:50,done:true,easy:true,reps:8}));
- assert.equal(plan({...s,profile:p,workouts:[{date:"2026-11-20",exercises:[e]}]},"2026-11-24")[0].sets[0].kg,51);
+ e.sets.forEach(t=>Object.assign(t,{kg:50,done:true,easy:true,reps:12}));
+ assert.equal(plan({...s,profile:p,workouts:["2026-11-17","2026-11-20"].map(date=>({date,exercises:[e]}))},"2026-11-24")[0].sets[0].kg,51);
  const {trainingSlot}=require("./web/logic.js");
  assert.equal(trainingSlot({profile:{week:{2:"Утром"}},workouts:[]},null,"2026-11-24"),"Утром");
 });
@@ -119,8 +119,8 @@ test("История, шаг веса и автоматический выбор
  assert.equal(next.length,1);assert.equal(next[0].name,variants[1]);
  for(const [i,name] of variants.entries()){
    const steps=Object.fromEntries(variants.map((v,j)=>["exercise:"+v.toLowerCase(),j+1]));
-   const completed=exercises.map(e=>({...e,sets:Array.from({length:3},()=>({...e.sets[0],easy:true}))}));
-   const specific={...s,profile:{...s.profile,equipment:[name],exerciseSteps:steps},workouts:[{...history,exercises:completed}]};
+   const completed=exercises.map(e=>({...e,sets:Array.from({length:3},()=>({...e.sets[0],reps:12,easy:true}))}));
+   const specific={...s,profile:{...s.profile,equipment:[name],exerciseSteps:steps},workouts:[{...history,date:"2026-03-30T12:00",exercises:completed},{...history,exercises:completed}]};
    assert.equal(plan(specific,"2026-04-04T10:00")[0].sets[0].kg,exercises[i].sets[0].kg+i+1);
  }
 });
@@ -169,4 +169,55 @@ test("Treadmill incline, console priority and performed sets control energy inde
  assert.equal(workoutEnergy(session).minutes,60);
  assert.equal(Math.round(workoutEnergy(session).gross),275);
  machine.seconds=4000;assert.equal(workoutEnergy(session).gross,null);
+});
+
+test("Двойная прогрессия требует двух отдельных полных тренировок на одном весе",()=>{
+ const name="Жим ногами под 45°",p={...s.profile,equipment:[name],workingSets:4};
+ const one=(d,kg=60)=>({date:"2026-03-"+d+"T12:00",exercises:[{name,plannedSets:4,sets:Array.from({length:4},()=>({kg,reps:12,easy:true,done:true}))}]});
+ const next=(workouts,profile=p,date="2026-03-10T13:00")=>plan({profile,workouts},date)[0];
+ const a=one("03"),b=one("07");
+ assert.deepEqual(next([a]).sets.map(t=>t.kg),[60,60,60,60]);
+ assert.deepEqual(next([a,b]).sets.map(t=>[t.kg,t.reps]),Array(4).fill([62.5,10]));
+ for(const mutate of [
+   e=>e.sets.pop(),e=>e.sets[1].reps=11,e=>e.sets[1].easy=false,
+   e=>e.sets[2].kg=55,e=>e.sets[0].done=false,
+   e=>e.sets[1].warmup=true
+ ]){
+   const changed=structuredClone(b);mutate(changed.exercises[0]);
+   assert.ok(next([a,changed]).sets.every(t=>t.kg<=60));
+ }
+ const warm=structuredClone(b);warm.exercises[0].sets.unshift({kg:20,reps:8,warmup:true,done:true});
+ assert.equal(next([a,warm]).sets[0].kg,62.5);
+ assert.equal(next([a,one("03")]).sets[0].kg,60);
+ assert.equal(next([a,b],p,"2026-04-10").sets[0].kg,60);
+ assert.equal(next([a,b],{...p,step:10}).sets[0].kg,60);
+ assert.equal(next([a,b],{...p,returning:true}).sets[0].kg,60);
+ const skipped=one("05");skipped.exercises[0].sets.forEach(t=>t.done=false);
+ assert.equal(next([a,skipped,b]).sets[0].kg,60);
+ for(const goal of ["Сила","Набор мышц","Общая форма","Снижение веса","Выносливость"]){
+   assert.ok(next([],{...p,goal}).sets.every(t=>t.reps<=12));
+ }
+});
+
+test("Очередь дня ног учитывает фактически сделанное, фиксированное расписание сохраняет день",()=>{
+ const profile={...s.profile,equipment:["Жим ногами под 45°","Вертикальная тяга на верхнем блоке","Жим лёжа"]};
+ const state={profile,workouts:[]},date="2026-03-11T12:00";
+ const prior=name=>({date:"2026-03-09T09:00",end:"2026-03-09T09:45",exercises:[{name,sets:[{done:true,reps:10,kg:40}]}]});
+ state.workouts=[prior("Жим лёжа")];
+ assert.equal(plan(state,date)[0].name,"Жим ногами под 45°");
+ state.workouts=[prior("Жим ногами под 45°")];
+ assert.notEqual(plan(state,date)[0].name,"Жим ногами под 45°");
+ state.profile={...profile,fixed:true,legDays:[3]};
+ assert.equal(plan(state,date)[0].name,"Жим ногами под 45°");
+});
+test("Предписание, способы учёта веса, ночное занятие",()=>{
+ const name="Молотковые сгибания",profile={...s.profile,workingSets:3,equipment:[name],loadUnits:{"exercise:молотковые сгибания":"Одна гантель"}};
+ const state={profile,workouts:[{date:"2026-03-08T12:00",exercises:[{name,sets:[{kg:30,reps:10,done:true}]}]}]};
+ const first=plan(state,"2026-03-10T12:00")[0];assert.equal(first.sets[0].kg,0);
+ first.sets[0].kg=10;first.sets[0].done=true;assert.equal(first.prescription[0].kg,0);
+ state.workouts.push({date:"2026-03-10T12:00",exercises:[first]});
+ assert.equal(plan(state,"2026-03-12T12:00")[0].sets[0].kg,10);
+ const {trainingSlot,schedule}=require("./web/logic");
+ const slot=trainingSlot({workouts:[{date:"2026-03-10T02:00"}]},null,"2026-03-10");
+ assert.equal(slot,"Ночью");assert.equal(schedule("Креатин",slot)[0],"Ночь");
 });

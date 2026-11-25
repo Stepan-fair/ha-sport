@@ -89,3 +89,19 @@ test("Training adds only the daily increment and respects snapshots, clock times
   s.energyRules[day]={mode:"off"};assert.equal(row().maintenance,null);
   s.energyRules={};s.workouts=[second];s.weights.shift();assert.equal(row().maintenance,null);
 });
+
+test("Переход через полночь делит вклад в сутки и сохраняет одну тренировку",()=>{
+ const s=base(),start="2026-02-02",end="2026-02-03";s.energyRules={};
+ s.profile={height:180,birth:"2000-03-01",sex:"Мужской"};s.weights=[{date:start+"T09:00",kg:80}];
+ const w={date:start+"T23:30",end:end+"T00:30",kg:80,cardio:[{seconds:3600,kcal:300}],exercises:[]};
+ s.workouts=[w];const r=run(s,end,"week");assert.equal(r.workouts,1);assert.equal(r.minutes,60);
+ assert.equal(r.rows[0].active,105);assert.equal(r.rows[1].active,105);
+ assert.equal(run(s,start,"day").rows[0].active,105);
+});
+test("История рабочих подходов разделена по способу записи и исключает разминку",()=>{
+ const s=base(),day="2026-04-13";const a=workout(day),b=workout(day);
+ a.exercises[0].loadUnit="Одна гантель";a.exercises[0].sets.push({done:true,kg:8,reps:14,warmup:true});
+ s.workouts=[a,b];const r=run(s,day,"day");
+ assert.equal(r.sets,3);assert.deepEqual(r.exerciseNames,["Жим","Жим · Одна гантель"]);
+ assert.equal(r.rows[0].exercises.get("Жим · Одна гантель").sets,1);
+});

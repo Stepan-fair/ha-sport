@@ -44,6 +44,10 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
  await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.length,1);
  assert.equal(entries.has("profile/person2"),false);
+ run('selectDay("2026-01-04")');node("start").value="2026-01-04T23:40";
+ await run('action("start")');node("end").value="2026-01-05T00:15";
+ run('draft.end=$("end").value;draft.exercises[0].sets[0].done=true');
+ await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.at(-1).end,"2026-01-05T00:15");
  const oldExercise={name:"Жим ногами",previous:"",sets:[{kg:72,reps:9,done:true,easy:false}]};
  const oldDay="2026-01-02",oldDraft={id:"old-open",date:oldDay+"T10:00",exercises:[oldExercise],cardio:[{},{}]};
  const legacy={rev:7,data:{profile:{equipment:["Жим ногами"],exerciseNotes:{"exercise:жим ногами":"Сиденье 3"}},

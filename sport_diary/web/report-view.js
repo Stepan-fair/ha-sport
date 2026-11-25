@@ -30,7 +30,7 @@ function reportName(){return Object.hasOwn(tracks,state.profile.rewardTrack)?sta
 function rewardBody(r){
   const lane=reportName()==="strength",w=r.week;
   const goal=lane?"Запиши подходы одного упражнения в двух занятиях недели":"Отметь питание за семь дней недели";
-  const goalState=lane?(w.repeat?"Выполнено · +5":"Тренировочных дней на этой неделе · "+w.gym):w.food+" из 7 дней";
+  const goalState=lane?(w.repeat?"Выполнено · +5":"Тренировочных дней на этой неделе · "+w.gym):(w.food===7?"Выполнено · +15":w.food+" из 7 дней");
   const badges=r.achievements.map(([label,day])=>'<li><b>'+esc(label)+'</b><small>'+esc(dayLabel(day))+'</small></li>').join("");
   return '<section class="rewardBanner"><span>Уровень '+(1+Math.floor(r.points/100))+'</span><strong>'+numberRu(r.points)+' баллов</strong>'+
     '<progress aria-label="До следующего уровня" max="100" value="'+(r.points%100)+'"></progress><small>Ещё '+(100-r.points%100)+' до следующего уровня</small></section>'+
@@ -58,8 +58,8 @@ function exerciseBody(r){
   const records=r.rows.map(d=>d.exercises.get(name)).filter(Boolean);
   return '<label>Упражнение и тренажёр<select id="report-exercise">'+options(r.exerciseNames,name)+'</select></label>'+
     graph(records.map(v=>[v.day,v.kg]),"Наибольший записанный вес за день","кг")+
-    graph(records.map(v=>[v.day,v.sets]),"Выполненные подходы за день","подх.")+
-    disclosure("set-history","Вес и повторы по каждому подходу",reportTable(["Дата","Подходы","Кг × повторы"],records.map(v=>[shortDay(v.day),v.sets,v.lines.join(" · ")])));
+    graph(records.map(v=>[v.day,v.sets]),"Рабочие подходы за день","подх.")+
+    disclosure("set-history","Вес и повторы рабочих подходов",reportTable(["Дата","Подходы","Кг × повторы"],records.map(v=>[shortDay(v.day),v.sets,v.lines.join(" · ")])));
 }
 function resultsPage(){
   const r=diaryReport(state,scale,boundScale(),selectedDay,reportPeriod);
