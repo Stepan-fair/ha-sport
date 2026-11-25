@@ -22,7 +22,7 @@ ASSET = "https://github.com/TerjeRu/lethio-food-db/releases/download/off-derived
 FILENAME = "food-build19.sqlite"
 EXPECTED = 520432
 NUTRIENTS = ("kcal_100g", "protein_100g", "fat_100g", "carbs_100g")
-HEADERS = {"User-Agent": "SportDiary/0.5.4 (+https://github.com/Stepan-fair/ha-sport/issues)"}
+HEADERS = {"User-Agent": "SportDiary/0.5.5 (+https://github.com/Stepan-fair/ha-sport/issues)"}
 BARCODE = re.compile(r"[0-9]{8,14}")
 DOWNLOAD_ERRORS = (OSError, EOFError, HTTPException, ValueError, csv.Error, sqlite3.Error, zlib.error)
 

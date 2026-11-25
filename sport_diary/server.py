@@ -72,9 +72,41 @@ def core(path):
     return fetch("http://supervisor/core/api/" + path, {"Authorization": "Bearer " + os.environ["SUPERVISOR_TOKEN"]})
 
 
+def scale_features():
+    # Ask Core for capabilities only. Keep readings and entity identifiers inside HA.
+    template = """
+    {%- set ns = namespace(rows=[]) -%}
+    {%- for e in integration_entities('xiaomi_ble') + integration_entities('ble_monitor') + integration_entities('esphome') -%}
+      {%- if e.startswith('sensor.') -%}
+        {%- set model = device_attr(e,'model') or '' -%}
+        {%- set key = (model ~ ' ' ~ e)|lower -%}
+        {%- if 'scale' in key or 'xmtzc' in key or 'весы' in key or 'весы' in (state_attr(e,'friendly_name') or '')|lower -%}
+          {%- set unit = (state_attr(e,'unit_of_measurement') or '')|lower -%}
+          {%- set kind = 'impedance' if unit in ['ω','ohm','ом'] or 'impedance' in e else
+                         'unstable' if 'non_stabilized' in e or 'non_stabilised' in e else
+                         'weight' if unit in ['kg','кг','g','lb','lbs'] else '' -%}
+          {%- if kind -%}
+            {%- set item = [model,kind] -%}
+            {%- if item not in ns.rows -%}{%- set ns.rows = ns.rows + [item] -%}{%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{ ns.rows | to_json }}
+    """
+    req = Request("http://supervisor/core/api/template", json.dumps({"template":template}).encode(),
+                  {"Authorization":"Bearer "+os.environ["SUPERVISOR_TOKEN"], "Content-Type":"application/json"})
+    with urlopen(req,timeout=7) as response:
+        rows = json.load(response)
+    if not isinstance(rows, list):
+        raise ValueError("Invalid scale discovery response")
+    return {"sensors":[{"model":model[:80], "kind":kind} for model,kind in rows
+                       if isinstance(model,str) and kind in ("weight","unstable","impedance")]}
+
+
 def weight(profile):
-    entity = measurements.weight_entity(options().get(profile + "_weight"))
-    if not entity:
+    entity, shared = measurements.scale_binding(options(), profile)
+    if not entity or shared:
         return None
     return measurements.reading(core("states/" + entity))
 
@@ -112,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, {})
         url = urlsplit(self.path)
         who = url.path.split("/")[-1]
-        if url.path == "/profiles" or url.path.startswith(("/profile/", "/weight/", "/weights/", "/food")):
+        if url.path == "/profiles" or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/food")):
             settings = options()
             user_id = self.headers.get("X-Remote-User-Id") if self.client_address[0] == "172.30.32.2" else None
             allowed = allowed_profiles(settings, user_id)
@@ -120,11 +152,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
             return self.reply(200, [{"id": p, "name": settings.get(p+"_name") or ("Профиль "+str(i+1)),
-                                     "weightEntity": settings.get(p+"_weight") or ""}
+                                     "weightEntity": settings.get(p+"_weight") or "",
+                                     **({"scaleConflict": True} if measurements.scale_binding(settings, p)[1] else {})}
                                     for i,p in enumerate(PROFILES)
                                     if p in allowed])
         if url.path == "/weights/"+who and who in PROFILES and self.command == "GET":
-            return self.reply(200, measurements.profile_readings(DATA/"sport.db", who, settings.get(who+"_weight"), core))
+            entity, shared = measurements.scale_binding(settings, who)
+            if shared:
+                return self.reply(200, [r for r in measurements.readings(DATA/"sport.db", who) if r["entity"] != entity])
+            return self.reply(200, measurements.profile_readings(DATA/"sport.db", who, entity, core))
+        if url.path == "/scale-info/"+who and who in PROFILES and self.command == "GET":
+            return self.reply(200, scale_features())
         if url.path == "/profile/" + who and who in ("person1", "person2"):
             with closing(sqlite3.connect(DATA / "sport.db")) as db:
                 db.execute("CREATE TABLE IF NOT EXISTS profile(who TEXT PRIMARY KEY,rev INTEGER,body TEXT)")
@@ -178,7 +216,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         static = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js","text/javascript"),
                   "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript"),
-                  "/foods.js": ("foods.js","text/javascript")}
+                  "/foods.js": ("foods.js","text/javascript"), "/reports.js": ("reports.js","text/javascript"),
+                  "/report-view.js": ("report-view.js","text/javascript")}
         if url.path in static:
             name, mime = static[url.path]
             return self.reply(200, (ROOT / "web" / name).read_bytes(), mime)

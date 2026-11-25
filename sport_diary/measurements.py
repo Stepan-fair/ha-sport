@@ -37,18 +37,26 @@ def open_history(path):
     db = sqlite3.connect(path, timeout=10)
     db.execute("CREATE TABLE IF NOT EXISTS scale(who TEXT, entity TEXT, date TEXT, kg REAL NOT NULL, PRIMARY KEY(who,entity,date))")
     db.execute("CREATE TABLE IF NOT EXISTS scale_cursor(who TEXT, entity TEXT, date TEXT, PRIMARY KEY(who,entity))")
+    db.execute("CREATE INDEX IF NOT EXISTS scale_source_time ON scale(entity,date,who)")
     return db
 
 
 def readings(path, who):
     with closing(open_history(path)) as db:
-        rows = db.execute("SELECT date,kg,entity FROM scale WHERE who=? ORDER BY date,entity", (who,))
+        rows = db.execute("SELECT a.date,a.kg,a.entity FROM scale a WHERE a.who=? AND NOT EXISTS (SELECT 1 FROM scale b WHERE b.who<>a.who AND b.entity=a.entity AND b.date=a.date) ORDER BY a.date,a.entity", (who,))
         return [{"date": date, "kg": kg, "source": "ha", "entity": entity} for date, kg, entity in rows]
 
 
 def weight_entity(value):
     entity = value.strip() if isinstance(value, str) else ""
     return entity if re.fullmatch(r"(?:sensor|input_number)\.[a-z0-9_]+", entity) else ""
+
+
+def scale_binding(settings, who):
+    entity = weight_entity(settings.get(who + "_weight"))
+    other = "person2" if who == "person1" else "person1"
+    shared = bool(entity and entity == weight_entity(settings.get(other + "_weight")))
+    return entity, shared
 
 
 def store_readings(db, who, entity, states, now, boundary=None):
@@ -104,7 +112,9 @@ def poll(stop, path, profiles, options, core):
     while not stop.is_set():
         for who in profiles:
             try:
-                collect(path, who, options().get(who+"_weight"), core)
+                entity, shared = scale_binding(options(), who)
+                if not shared:
+                    collect(path, who, entity, core)
             except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
                 logging.warning("Scale synchronization unavailable for %s; saved readings retained", who)
         stop.wait(60)

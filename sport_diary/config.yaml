@@ -1,5 +1,5 @@
 name: Спорт
-version: "0.5.4"
+version: "0.5.5"
 slug: sport_diary
 description: Тренировки, питание и дневник для двух профилей
 arch: [amd64, aarch64]

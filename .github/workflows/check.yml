@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: '24'
       - run: python -m unittest discover -s sport_diary -p test_sport.py
-      - run: node --test sport_diary/logic.test.js sport_diary/session.test.js
+      - run: node --test sport_diary/logic.test.js sport_diary/session.test.js sport_diary/reports.test.js
       - run: docker build -t sport-test sport_diary
       - name: Verify the complete food index and a barcode lookup without network
         run: |

@@ -11,6 +11,7 @@ OUT = ROOT.parent / "artifacts" / "sport"
 LOCAL_REQUEST = """
 async function request(path, body) {
   if (path === "profiles") return [{id:"person1",name:"Профиль 1"},{id:"person2",name:"Профиль 2"}];
+  if (path.startsWith("scale-info/")) return {demo:true};
   if (path.startsWith("weights/")) return [];
   if (path.startsWith("weight/")) return null;
   if (path.startsWith("food?source=catalog")) return {status:"demo",products:[]};
@@ -34,7 +35,7 @@ def build():
     page = page.replace('<link rel="stylesheet" href="style.css">', "<style>" + (WEB / "style.css").read_text(encoding="utf8") + "</style>")
     page = page.replace('<section id="content"></section>', '<section id="content"></section><small>Демо на этом устройстве · без синхронизации с HA</small>')
     catalog = "const exerciseCatalog = " + json.dumps(CATALOG) + "; const exercisePhotoBase = " + json.dumps(PHOTO_SOURCE) + ";"
-    for name, source in [("catalog", catalog), ("logic", (WEB / "logic.js").read_text(encoding="utf8")), ("foods", (WEB / "foods.js").read_text(encoding="utf8")), ("app", js)]:
+    for name, source in [("catalog", catalog), ("logic", (WEB / "logic.js").read_text(encoding="utf8")), ("foods", (WEB / "foods.js").read_text(encoding="utf8")), ("reports",(WEB / "reports.js").read_text(encoding="utf8")), ("report-view",(WEB / "report-view.js").read_text(encoding="utf8")), ("app", js)]:
         page = page.replace(f'<script src="{name}.js"></script>', "<script>" + source + "</script>")
     (OUT / "Sport-preview.html").write_text(page, encoding="utf8")
     with ZipFile(OUT / "Sport-HA.zip", "w", ZIP_DEFLATED) as archive:

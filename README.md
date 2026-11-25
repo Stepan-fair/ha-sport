@@ -1,6 +1,6 @@
 # Спортивный дневник для Home Assistant OS
 
-Семейный дневник тренировок, питания и добавок. Этот репозиторий предназначен для установки через магазин приложений Home Assistant. Версия приложения 0.5.4.
+Семейный дневник тренировок, питания и добавок. Этот репозиторий предназначен для установки через магазин приложений Home Assistant. Версия приложения 0.5.5.
 
 ## Установка
 
@@ -16,7 +16,7 @@
 
 ```sh
 python -m unittest discover -s sport_diary -p test_sport.py
-node --test sport_diary/logic.test.js sport_diary/session.test.js
+node --test sport_diary/logic.test.js sport_diary/session.test.js sport_diary/reports.test.js
 python sport_diary/package.py
 ```
 

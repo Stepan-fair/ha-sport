@@ -128,15 +128,17 @@ function render(){
  $("content").innerHTML=(tab?'<h1 class="page-title">'+esc(tabs[tab])+'</h1>'+btn("show-calendar",dayLabel(selectedDay)+" ▾"):"")+[today,workout,food,profile][tab]();if(tab===0)updateSupplementButton();
  for(const d of document.querySelectorAll("details[data-disclosure]"))if(open.includes(d.dataset.disclosure))d.open=true;
  bindSaveButtons();
+ syncEnergyFields();
  for(const group of document.querySelectorAll(".equipmentGroup:has(.eqCount)"))updateEquipmentCount(group);
  updateFinishButton();
 }
 const formSelectors={
+ "save-energy":"#energy-mode,#daily-maint,#energy-factor","save-track":"#reward-track",
  profile:"#height,#birth,#sex,#goal,#focus,#minutes,#step,#fixed,[name=extra],[name=legday],[name=eq],[data-week],[data-step-name]",
  "save-supps":"[name=uses]",meal:"#product,#barcode,#amount,#mealdate,#unit,#nut0,#nut1,#nut2,#nut3",weight:"#kg,#wdate"
 };
 function formKey(action,name=""){
- const day=["meal","weight"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
+ const day=["meal","weight","save-energy"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
  return JSON.stringify([who,day,action,name]);
 }
 function rememberForm(key,patch){
@@ -156,7 +158,12 @@ function trackForm(binding,restore=false){
    const value=fieldValue(el);
    if(value!==base)patch[id]=value;else delete patch[id];
  }
- binding.button.hidden=!Object.keys(patch).length;
+ let refreshEstimate=false;
+ if(binding.button.dataset.action==="save-energy"&&$("energy-mode").value==="estimate"){
+   const rule=activeEnergyRule(),p=state.profile;
+   refreshEstimate=rule.mode==="estimate"&&(rule.birth!==p.birth||rule.sex!==p.sex||rule.height!==Number(p.height));
+ }
+ binding.button.hidden=!Object.keys(patch).length&&!refreshEstimate;
  rememberForm(binding.key,binding.button.hidden?null:patch);
 }
 function bindSaveButtons(){
@@ -288,7 +295,7 @@ function hero(){
  return '<section class="hero"><div class="orbit" aria-hidden="true"></div><div class="heroMain"><small>'+esc(date)+'</small><h1>'+esc(name)+', твой день</h1><p>'+(draft?"Есть начатая тренировка":slot==="Отдых"?"По плану отдых":"В плане зал · "+slot.toLowerCase())+'</p>'+btn("open",draft?"Продолжить занятие →":"Открыть тренировку →",true)+'</div><div class="heroFoot"><b>'+count+'</b> занятий за 7 дней <span>·</span> <b>'+state.profile.minutes+'</b> мин в плане</div>'+weekStrip()+'</section>';
 }
 function today(){
- return hero()+card("Мои добавки",'<div id="planPanel">'+planPanel(selectedDay)+'</div>'+(state.profile.supps.length?btn("supp","Подтвердить приём",true):""))+
+ return hero()+dailyRecap()+card("Мои добавки",'<div id="planPanel">'+planPanel(selectedDay)+'</div>'+(state.profile.supps.length?btn("supp","Подтвердить приём",true):""))+
  card("Приём за выбранный день",state.supps.filter(x=>x.date.startsWith(selectedDay)).sort((a,b)=>(periodStart[b.period]||"").localeCompare(periodStart[a.period]||"")||b.date.localeCompare(a.date)).map(x=>'<p>'+esc(x.date.replace('T',' '))+' · '+esc(x.period)+' · '+esc(x.names.join(', '))+'</p>'+x.names.map(n=>btn("undo-supp-"+esc(encodeURIComponent(n)),"Снять отметку · "+esc(n))).join("")).join('')||'Пока пусто');
 }
 function progressMeter(){
@@ -332,7 +339,7 @@ function summary(w){
  const ready=w.exercises.filter(e=>e.sets.length&&e.sets.every(t=>t.done&&t.easy)).map(e=>exerciseLabel(e.name));
  const feedback=ready.length?"С запасом выполнены все подходы: "+ready.join(", ")+".":"";
  const missed=w.exercises.some(e=>e.sets.some(t=>!t.done));
- return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+ (t.estimated===null?(t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':'Для оценки калорий нужен вес на дату занятия'):(w.kg?'≈ ':'')+t.estimated+' ккал за занятие')+' · '+t.points+' баллов · вес '+(w.kg??'—')+' кг</p>'+cardio+btn('edit-workout-'+esc(w.id),'Исправить тренировку')+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
+ return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+ (t.estimated===null?(t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':'Для оценки калорий нужен вес на дату занятия'):(w.kg?'≈ ':'')+t.estimated+' ккал за занятие')+' · вес '+(w.kg??'—')+' кг</p><p class="muted">За день с записанной тренировкой · +8 баллов. Все начисления доступны в профиле.</p>'+cardio+btn('edit-workout-'+esc(w.id),'Исправить тренировку')+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
 }
 function food(){
  const meal=state.meals.find(x=>x.id===editingMeal);
@@ -419,30 +426,68 @@ function profile(){
  const p=state.profile,until=selectedDay===local().slice(0,10)?new Date().toISOString():selectedDay+"T23:59:59.999";
  const measurement=measurementAt(state,until,scale,boundScale()),kg=measurement?.kg;
  const source=measurement?new Date(measurement.date).toLocaleString("ru-RU")+" · "+(measurement.source==="ha"?"Весы HA":measurement.source==="manual"?"Вручную":"Ранее сохранено"):"";
- if(!settingsOpen){
- const history=state.workouts.filter(w=>w.date.slice(0,10)<=selectedDay).sort((a,b)=>b.date.localeCompare(a.date));
- const day=history.filter(w=>w.date.startsWith(selectedDay));
- return card("Результаты",'<p>Вес на дату · <b>'+esc(kg??"—")+' кг</b><br><small>'+esc(source)+'</small></p><p>Занятий к этой дате · <b>'+history.length+'</b></p><p>Рабочих подходов за день · <b>'+day.reduce((n,w)=>n+total(w).sets,0)+'</b></p>'+btn("settings","Настройки профиля"))+
- card("История тренировок",history.map(w=>btn("history-"+w.id,esc(w.date.replace("T"," ")))).join("")||"Пока пусто");
- }
+ if(!settingsOpen)return resultsPage();
  const age=p.birth?Math.floor((Date.now()-Date.parse(p.birth))/(365.2425*86400000)):null;
  const metrics=[age!==null?"Возраст · "+age:null,kg&&Number(p.height)>0?"ИМТ · "+(kg/(Number(p.height)/100)**2).toFixed(1):null].filter(Boolean).join(" · ");
  const entity=boundScale();
  const linked=/^(sensor|input_number)\.[a-z0-9_]+$/.test(entity);
  let scaleStatus='Сущность веса не привязана';
  if(entity)scaleStatus=linked?'Привязана сущность <code>'+esc(entity)+'</code>':'Проверь ID сущности в конфигурации. Он должен начинаться с sensor. или input_number.';
- const scaleHelp=linked?(scale.some(w=>w.entity===entity)?"Вес подставляется автоматически. Более свежий ручной замер тоже учитывается.":"Пока нет показаний от этих весов. Проверь значение и единицу массы у сущности в HA."):"Привязать весы можно в Настройки HA → Приложения → Спорт → Конфигурация.";
- const binding='<div class="scaleBinding"><strong>Весы Home Assistant</strong><p>'+scaleStatus+'</p><small>'+scaleHelp+'</small></div>';
+ const conflict=people.find(p=>p.id===who)?.scaleConflict;
+ const scaleHelp=conflict?"Обоим профилям назначена одна сущность. Выбери два разных персональных датчика, которые HA наполняет по диапазонам веса.":linked?(scale.some(w=>w.entity===entity)?"Вес подставляется автоматически. Более свежий ручной замер тоже учитывается.":"Пока нет показаний от этих весов. Проверь значение и единицу массы у сущности в HA."):"Привязать весы можно в Настройки HA → Приложения → Спорт → Конфигурация.";
+ const binding='<div class="scaleBinding"><strong>Весы Home Assistant</strong><p>'+scaleStatus+'</p><small>'+scaleHelp+'</small>'+btn('scale-features','Проверить датчики весов в HA')+'<p id="scale-features" role="status"></p></div>';
  const manual=field("kg","Вес, кг","number","","step=any")+dt("wdate","Дата взвешивания")+btn("weight","Записать вес");
  const manualForm=linked?'<details class="equipmentGroup" data-disclosure="manual-weight"><summary>Внести отдельный замер вручную</summary><div>'+manual+'</div></details>':manual;
  return btn("results","← К результатам")+'<section class="profileEditor">'+card("Данные профиля",field("height","Рост, см","number",p.height)+field("birth","Дата рождения","date",p.birth||"")+'<label>Пол<select id="sex">'+options(["","Мужской","Женский"],p.sex)+'</select></label><p>'+metrics+'</p><p>Вес · '+(kg||"—")+' кг · '+esc(source)+'</p>'+binding+manualForm)+
  card("Настройки плана",'<label>Основная цель<select id="goal">'+options(goals,p.goal)+'</select></label><div>Дополнительные цели</div>'+goals.map(n=>check(n,'name="extra" value="'+esc(n)+'"',p.extra.includes(n))).join('')+'<div><label>Приоритет<select id="focus">'+options(["","ног","тяга","Жим"],p.focus)+'</select></label></div>'+field("minutes","Длительность, мин","number",p.minutes)+field("step","Шаг прибавки, кг","number",p.step,"step=any")+check("Оставлять пропущенный день ног на том же дне недели (иначе — продолжить очередь в ближайшую тренировку)",'id="fixed"',p.fixed)+'<details class="equipmentGroup weekPlan"><summary>Недельное расписание</summary><div>'+[1,2,3,4,5,6,0].map(i=>'<label>'+['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][i]+'<select data-week="'+i+'" id="week'+i+'">'+options(['Отдых','Утром','Днём','Вечером'],p.week?.[i]||'Отдых')+'</select></label>').join('')+'</div></details><div>Дни с акцентом на ноги</div>'+["Вс","Пн","Вт","Ср","Чт","Пт","Сб"].map((n,i)=>check(n,'name="legday" value="'+i+'"',(p.legDays||[2]).includes(i))).join("")+exercisePreferences(p))+'<div class="profileSaveBar">'+btn("profile","Сохранить профиль",true)+'</div></section>'+
- supplementPreferences(p);
+ reportSettings()+supplementPreferences(p);
 }
 const val=id=>$(id).value;
 const selected=n=>Array.from(document.querySelectorAll('input[name="'+n+'"]:checked:not(:disabled)'),x=>x.value);
 function when(id){const d=val(id);if(d.slice(0,10)!==selectedDay)throw Error("Выбери день события в календаре.");if(!Number.isFinite(Date.parse(d))||Date.parse(d)>Date.now()+60000)throw Error("Укажи дату и время события в прошлом или сейчас.");return d}
+function syncEnergyFields(){
+ const mode=$("energy-mode");if(!mode)return;
+ if($("energy-auto"))$("energy-auto").hidden=mode.value!=="estimate";
+ if($("energy-manual"))$("energy-manual").hidden=mode.value!=="manual";
+}
+document.addEventListener("change",ev=>{
+ if(ev.target.id==="report-exercise"){reportExercise=ev.target.value;render();$("report-exercise")?.focus({preventScroll:true})}
+ if(ev.target.id==="energy-mode")syncEnergyFields();
+});
 async function action(a){
+ if(a==="scale-features"){
+   const panel=$("scale-features");panel.textContent="Проверяю сущности…";
+   try{
+     const data=await request("scale-info/"+who),labels={weight:"вес",unstable:"нестабильный вес",impedance:"импеданс"};
+     panel.textContent=data.demo?"Проверка доступна в установленном приложении HA.":data.sensors.length?
+       data.sensors.map(x=>(x.model||"Весы")+" · "+labels[x.kind]).join(" / ")+". В личный дневник поступает вес с привязанной персональной сущности.":
+       "У поддерживаемых интеграций не распознаны датчики весов. Привязку персонального веса можно использовать отдельно.";
+   }catch{panel.textContent="HA не ответил на проверку датчиков. Попробуй позже."}
+   return;
+ }
+ if(a==="report-day"){reportPeriod="day";settingsOpen=false;tab=3;render();return}
+ if(a.startsWith("period-")&&Object.hasOwn(reportPeriods,a.slice(7))){reportPeriod=a.slice(7);render();return}
+ if(a==="rest-log"){
+   if(selectedDay>local().slice(0,10)||state.workouts.some(w=>w.date.startsWith(selectedDay)))return;
+   await commit(s=>{const log=s.restLog||={};if(log[selectedDay])delete log[selectedDay];else log[selectedDay]=true});render();return;
+ }
+ if(a==="save-track"){
+   const track=val("reward-track");if(!Object.hasOwn(tracks,track))return;
+   await saveForm("save-track",s=>s.profile.rewardTrack=track);render();return;
+ }
+ if(a==="save-energy"){
+   const day=selectedDay,mode=val("energy-mode"),p=state.profile;
+   if(day>local().slice(0,10))throw Error("Выбери текущую или прошлую дату.");
+   const rule={mode};
+   if(mode==="manual"){
+     rule.kcal=Number(val("daily-maint"));
+     if(!Number.isSafeInteger(rule.kcal)||rule.kcal<=0)throw Error("Укажи суточный расход в ккал.");
+   }else if(mode==="estimate"){
+     Object.assign(rule,{birth:p.birth,height:Number(p.height),sex:p.sex,factor:Number(val("energy-factor"))});
+     if(maintenance(rule,day,70)==null)throw Error("Для оценки с 19 лет сначала сохрани дату рождения, рост и пол в профиле.");
+   }else if(mode!=="off")return;
+   await saveForm("save-energy",s=>{(s.energyRules||={})[day]=rule});render();return;
+ }
  if(a==="food-complete"){if(selectedDay>local().slice(0,10))throw Error("Этот день ещё не наступил.");await commit(s=>{s.foodComplete={...s.foodComplete,[selectedDay]:!s.foodComplete?.[selectedDay]}});render();return}
  if(a==="settings"||a==="results"){settingsOpen=a==="settings";render();return}
  if(a.startsWith("date-")||a==="cal-today"){selectDay(a==="cal-today"?local().slice(0,10):a.slice(5));expanded=false;render();return}
@@ -594,7 +639,7 @@ document.addEventListener("click",async ev=>{const b=ev.target.closest("button")
      const message=document.createElement("p");message.className="saveError";message.textContent=e.message;b.after(message);
    }
  }finally{b.removeAttribute("aria-busy");busy=false;$("who").disabled=false}});
-$("who").onchange=()=>{if(busy||!people.some(p=>p.id===$("who").value)){$("who").value=who;return}who=$("who").value;pendingDoses.clear();manualTime="";scale=[];editingMeal=null;settingsOpen=false;state=null;draft=null;lastSummary=null;results=[];tab=0;$("content").innerHTML="";note("");load().catch(e=>note(e.message))};
+$("who").onchange=()=>{if(busy||!people.some(p=>p.id===$("who").value)){$("who").value=who;return}who=$("who").value;reportExercise="";reportPeriod="week";pendingDoses.clear();manualTime="";scale=[];editingMeal=null;settingsOpen=false;state=null;draft=null;lastSummary=null;results=[];tab=0;$("content").innerHTML="";note("");load().catch(e=>note(e.message))};
 if(typeof window!=="undefined"&&window.addEventListener){
  const recover=async()=>{
    if(!state||busy||document.hidden)return;

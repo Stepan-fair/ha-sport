@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone, timedelta
 import shutil
 import measurements
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 import unittest
@@ -56,7 +57,7 @@ class Sport(unittest.TestCase):
         self.assertEqual(self.profile("person1")["data"], body["data"])
 
     def test_web_entry_points(self):
-        for path in ["/", "/app.js", "/logic.js", "/catalog.js", "/foods.js", "/style.css"]:
+        for path in ["/", "/app.js", "/logic.js", "/catalog.js", "/foods.js", "/reports.js", "/report-view.js", "/style.css"]:
             self.assertEqual(self.call(path)[0], 200)
         self.assertEqual(self.call("/weight/person2"), (200, b"null"))
 
@@ -215,6 +216,25 @@ class Sport(unittest.TestCase):
         with self.assertRaises(OSError):
             measurements.collect(server.DATA/"sport.db","person2","sensor.scale",core,now)
         self.assertEqual(json.loads(self.call("/weights/person2")[1])[0]["kg"],72.5)
+
+    def test_scale_inspection_and_shared_source(self):
+        same={**self.settings, "person1_weight":"sensor.scale", "person2_weight":"sensor.scale"}
+        with patch.object(server,"options",return_value=same), patch.object(server,"core") as core:
+            self.assertTrue(json.loads(self.call("/profiles",user="u2")[1])[0]["scaleConflict"])
+            self.assertEqual(self.call("/weight/person2",user="u2"),(200,b"null"))
+            self.assertEqual(self.call("/weights/person2",user="u2"),(200,b"[]"))
+            core.assert_not_called()
+        with patch.object(server,"scale_features",return_value={"sensors":[{"kind":"weight","model":"Mi Scale"}]}) as discovery:
+            self.assertEqual(self.call("/scale-info/person1",user="u2")[0],403)
+            self.assertEqual(self.call("/scale-info/person2",user="other")[0],403)
+            discovery.assert_not_called()
+            self.assertEqual(self.call("/scale-info/person2",user="u2")[0],200)
+        with closing(measurements.open_history(server.DATA/"sport.db")) as db, db:
+            for who in server.PROFILES:
+                db.execute("INSERT INTO scale VALUES(?,?,?,?)",(who,"sensor.shared","2026-01-01",70))
+            db.execute("INSERT INTO scale VALUES(?,?,?,?)",("person1","sensor.personal","2026-01-01",60))
+        self.assertEqual(len(measurements.readings(server.DATA/"sport.db","person1")),1)
+        self.assertEqual(measurements.readings(server.DATA/"sport.db","person2"),[])
 
     def test_photo_routes(self):
         from unittest.mock import patch

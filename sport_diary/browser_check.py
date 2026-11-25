@@ -30,6 +30,7 @@ window.fetch = async function(path, options={}) {
   }
   else if(path.startsWith("food?")) return new Response('{"reason":"rate_limit"}',{status:429});
   else if(!visible.some(p=>path.split("/")[1]===p.id)){status=403;reply={}}
+  else if(path.startsWith("scale-info/")) reply={sensors:[{model:"QA scale",kind:"impedance"}]};
   else if(path.startsWith("weights/")) reply=path==="weights/person1"?
     [{kg:78.5,date:"2001-01-01T09:00:00+00:00",source:"ha",entity:"sensor.test_scale_one"}]:[];
   else {
@@ -54,7 +55,7 @@ def check_exchanges(rows, limited):
         (DATA / "options.json").write_text(json.dumps(settings), encoding="utf8")
         user = "u2" if limited else "u1"
         sample = {"state":"78.5","last_updated":"2001-01-01T09:00:00Z","attributes":{"unit_of_measurement":"kg"}}
-        with patch("server.core", return_value=sample):
+        with patch("server.core", return_value=sample), patch("server.scale_features", return_value={"sensors":[{"model":"QA scale","kind":"impedance"}]}):
             for i, row in enumerate(rows):
                 status, content = fixture.call("/"+row["path"], row["body"], user=user)
                 assert (status, json.loads(content)) == (row["status"], row["reply"]), (i,row["path"],status)

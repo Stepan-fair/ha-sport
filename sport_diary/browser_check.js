@@ -253,6 +253,20 @@
  set("exercise-new","name:"+machine45);await actionButton("choose-new");added=draft.exercises.length-1;
  verify(!el('[data-action="save-note-'+added+'"]').closest("details").querySelector("textarea").value&&state.profile.exerciseNotes[noteKey(horizontal)]==="Сиденье горизонтального 6","horizontal seat note is saved separately from the 45 degree sled");
  await actionButton("cancel");
+ await go(0);verify(!el('[data-action="rest-log"]'),"training takes precedence over rest");
+ const another=shiftDay(day,-1);selectDay(another);render();await actionButton("rest-log");verify(state.restLog[another],"rest is recorded on selected date");await actionButton("rest-log");
+ selectDay(day);render();await actionButton("report-day");
+ verify(el('[data-action="period-day"]').getAttribute("aria-pressed")==="true"&&!!el(".rewardBanner"),"open day report and personal score");
+ for(const period of ["week","month","year"]){await actionButton("period-"+period);verify(el('[data-action="period-'+period+'"]').getAttribute("aria-pressed")==="true","switch "+period)}
+ await click('[data-disclosure="exercises"]>summary');
+ verify(!!$("report-exercise")&&el('[data-disclosure="exercises"] svg')&&el('.periodPick').getBoundingClientRect().right<=innerWidth,"exercise charts fit viewport");
+ await actionButton("settings");
+ await actionButton("scale-features");verify($("scale-features").textContent.includes("импеданс"),"HA capabilities are rendered without person measurements");
+ set("reward-track",limitedAccount?"strength":"rhythm");await actionButton("save-track");
+ verify(state.profile.rewardTrack===(limitedAccount?"strength":"rhythm")&&!visible("save-track"),"reward preferences saved independently");
+ set("energy-mode","manual");set("daily-maint","2100");await actionButton("save-energy");
+ verify(state.energyRules[day]?.kcal===2100&&!visible("save-energy"),"dated energy settings are saved");
+ await actionButton("results");
  const visited=[];
  request=async(path,body)=>{
    visited.push(path);
