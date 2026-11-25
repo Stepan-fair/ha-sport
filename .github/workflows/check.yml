@@ -25,6 +25,20 @@ jobs:
       - run: python -m unittest discover -s sport_diary -p test_sport.py
       - run: node --test sport_diary/logic.test.js sport_diary/session.test.js
       - run: docker build -t sport-test sport_diary
+      - name: Verify the complete food index and a barcode lookup without network
+        run: |
+          docker run --rm --network none sport-test python -c '
+          import sqlite3
+          from pathlib import Path
+          import food_catalog as f
+          path = Path(f.FILENAME)
+          assert path.is_file()
+          db = sqlite3.connect(path)
+          assert db.execute("select count(*) from foods").fetchone()[0] == f.EXPECTED
+          code = db.execute("select code from codes limit 1").fetchone()[0]
+          catalog = f.Catalog(path, path)
+          assert catalog.lookup(code)["products"][0]["code"] == code
+          assert catalog.lookup("творог")["products"]'
       - name: Verify the bundled exercise photographs
         run: docker run --rm sport-test python -c 'import photos; assert all((photos.WEB / "photos" / name).read_bytes().startswith(bytes.fromhex("FFD8")) for name in photos.PHOTO_PATHS)'
       - name: Start image and check unauthenticated profile list

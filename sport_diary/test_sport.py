@@ -1,4 +1,9 @@
 import json
+import csv
+import gzip
+import socket
+import ssl
+import food_catalog
 import tempfile
 import io
 from unittest.mock import MagicMock, patch
@@ -77,7 +82,60 @@ class Sport(unittest.TestCase):
         with patch.object(server, "fetch", side_effect=HTTPError("fixture", 404, "", {}, None)):
             self.assertEqual(self.call("/food?q=4600000000008"), (200, b"[]"))
         with patch.object(server, "fetch", side_effect=TimeoutError()):
-            self.assertEqual(self.call(path)[0], 503)
+            self.assertEqual(self.call(path), (504, b'{"reason": "timeout"}'))
+        for error, reason, status in [
+            (HTTPError("test", 429, "", {}, None), "rate_limit", 429),
+            (HTTPError("test", 403, "", {}, None), "blocked", 502),
+            (HTTPError("test", 502, "", {}, None), "http_502", 502),
+            (URLError(socket.gaierror()), "dns", 502),
+            (URLError(ssl.SSLError()), "tls", 502),
+            (ValueError("not JSON"), "bad_data", 502)
+        ]:
+            with self.subTest(reason=reason), patch.object(server, "fetch", side_effect=error):
+                code, reply = self.call(path)
+                self.assertEqual((code, json.loads(reply)["reason"]), (status, reason))
+
+    def test_catalog_offline_import_search_permissions_and_recovery(self):
+        fields = ["name","brand","barcode","barcodes","country",*food_catalog.NUTRIENTS]
+        raw = io.StringIO(newline="")
+        writer = csv.writer(raw)
+        writer.writerow(fields)
+        writer.writerows([
+            ["Йогурт с мёдом","Север","0012345678905","0012345678905;00001234","ru",110,7,2,16],
+            ["Йогурт с медом","East","12345678","12345678","de",105,6,3,13],
+            ["Творог мягкий","","23456789","","ru",90,10,0,""],
+        ])
+        packed = gzip.compress(raw.getvalue().encode())
+        path = server.DATA / food_catalog.FILENAME
+        cat = food_catalog.Catalog(server.DATA / "bundle.sqlite", path)
+        def search(q, user="u1"):
+            status, data = self.call("/food?" + urlencode({"source":"catalog", "q":q}),user=user)
+            self.assertEqual(status, 200)
+            return json.loads(data)
+        with patch.object(server,"catalog",cat), patch.object(server, "fetch", side_effect=AssertionError("Online lookup")):
+            self.assertEqual(search("творог")["status"], "loading")
+            original = food_catalog.build
+            with patch.object(food_catalog,"urlopen",side_effect=[URLError(socket.gaierror()),io.BytesIO(packed)]), \
+                    patch.object(food_catalog,"build",wraps=lambda archive,target: original(archive,target,3)), \
+                    patch.object(food_catalog.time,"sleep",side_effect=lambda delay: self.assertEqual(search("творог")["reason"],"dns")):
+                cat.prepare()
+            for user in ("u1","u2"):
+                result = search("МЕД йог",user)["products"]
+                self.assertEqual([p["code"] for p in result],["0012345678905","12345678"])
+                self.assertEqual(search("00001234",user)["products"][0]["nut"],[110,7,2,16])
+            self.assertEqual(search("0012345678905")["products"][0]["code"],"0012345678905")
+            self.assertEqual(search("23456789")["products"][0]["nut"],[90,10,0,None])
+            self.assertEqual(search("87654321"),{"status":"ready","products":[]})
+            self.assertEqual(search('"" * OR')["products"],[])
+            self.assertEqual(self.call("/food?q=test&source=catalog",user="other")[0],403)
+            for bad, count in [(packed,4),(packed[:-6],3),(gzip.compress(b"wrong,header\n"),3)]:
+                with self.assertRaises((ValueError,EOFError)):
+                    food_catalog.build(io.BytesIO(bad),path,count)
+                self.assertEqual(len(search("йогурт")["products"]),2)
+            path.rename(cat.bundled)
+            with patch.object(food_catalog,"urlopen",side_effect=AssertionError("Download on restart")):
+                cat.prepare()
+                self.assertEqual(len(search("йогурт")["products"]),2)
 
     def test_weight_entity_normalization(self):
         self.assertEqual(measurements.weight_entity("  input_number.scale_1 "), "input_number.scale_1")

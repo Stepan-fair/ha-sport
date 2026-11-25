@@ -25,6 +25,8 @@ test("Привязанные весы имеют приоритет при со�
 const {localFoods, importedFood, distinctFoods}=require("./web/foods.js");
 test("Локальный поиск учитывает жирность, порядок слов, сохранённые карточки и штрихкоды",()=>{
  const lookup=q=>localFoods(q,[],[]);
+ assert.deepEqual(lookup("яйца")[0].nut,[157,12.7,11.5,0.8]);
+ assert.equal(lookup("4600605029312")[0].name,"Творог 5% · Простоквашино");
  assert.equal(lookup("творог").length,4);
  assert.equal(lookup("0.1% ТВОРОГ")[0].nut[0],55);
  assert.equal(lookup("кефир 5%").length,0);

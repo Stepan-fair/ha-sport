@@ -13,7 +13,8 @@ async function request(path, body) {
   if (path === "profiles") return [{id:"person1",name:"Профиль 1"},{id:"person2",name:"Профиль 2"}];
   if (path.startsWith("weights/")) return [];
   if (path.startsWith("weight/")) return null;
-  if (path.startsWith("food?")) throw Error("Онлайн-поиск доступен в дополнении HA.");
+  if (path.startsWith("food?source=catalog")) return {status:"demo",products:[]};
+  if (path.startsWith("food?")) throw Object.assign(Error("Открой приложение в HA для онлайн-поиска."), {reason:"demo"});
   const key = "sport-preview:" + path;
   const old = JSON.parse(localStorage.getItem(key) || '{"rev":0,"data":{}}');
   if (!body) return old;
@@ -37,7 +38,7 @@ def build():
         page = page.replace(f'<script src="{name}.js"></script>', "<script>" + source + "</script>")
     (OUT / "Sport-preview.html").write_text(page, encoding="utf8")
     with ZipFile(OUT / "Sport-HA.zip", "w", ZIP_DEFLATED) as archive:
-        for file in [ROOT / name for name in ["config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md", "server.py", "photos.py","measurements.py"]] + sorted((ROOT / "translations").glob("*.yaml")) + sorted(f for f in WEB.iterdir() if f.is_file()):
+        for file in [ROOT / name for name in ["config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md", "server.py", "photos.py","measurements.py","food_catalog.py"]] + sorted((ROOT / "translations").glob("*.yaml")) + sorted(f for f in WEB.iterdir() if f.is_file()):
             archive.write(file, "sport/" + file.relative_to(ROOT).as_posix())
 
 

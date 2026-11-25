@@ -23,7 +23,12 @@ window.fetch = async function(path, options={}) {
   const visible = limitedAccount ? profiles.slice(1) : profiles;
   let status=200, reply;
   if(path==="profiles") reply=visible;
-  else if(path.startsWith("food?")) return new Response("{}",{status:503});
+  else if(path.startsWith("food?source=catalog")){
+    const q=new URLSearchParams(path.split("?")[1]).get("q").toLowerCase();
+    const rows=q==="творог"?[{name:"Творог фермерский",catalogItem:true,unit:"г",code:"00001000",nut:[106,16,2,6]}]:[];
+    return new Response(JSON.stringify({status:"ready",products:rows}));
+  }
+  else if(path.startsWith("food?")) return new Response('{"reason":"rate_limit"}',{status:429});
   else if(!visible.some(p=>path.split("/")[1]===p.id)){status=403;reply={}}
   else if(path.startsWith("weights/")) reply=path==="weights/person1"?
     [{kg:78.5,date:"2001-01-01T09:00:00+00:00",source:"ha",entity:"sensor.test_scale_one"}]:[];

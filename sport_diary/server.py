@@ -1,21 +1,24 @@
 """Local HA ingress application. Only the supervisor ingress proxy can reach its API."""
 import json
+import logging
+from http.client import HTTPException
 from contextlib import closing
 import os
-import re
 import sqlite3
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import quote, urlsplit, parse_qs, urlencode
+from urllib.parse import urlsplit, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from threading import Event, Thread
 import measurements
+import food_catalog
 from photos import CATALOG, PHOTO_PATHS, PHOTO_SOURCE
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("SPORT_DATA", "/data"))
-HEADERS = {"User-Agent": "SportDiary/0.1 (private HA food diary)"}
+HEADERS = food_catalog.HEADERS
+catalog = food_catalog.Catalog(ROOT / food_catalog.FILENAME, DATA / food_catalog.FILENAME)
 PROFILES = ("person1", "person2")
 
 
@@ -27,6 +30,31 @@ def fetch(url, headers=None):
 def options():
     path = DATA / "options.json"
     return json.loads(path.read_text(encoding="utf8")) if path.exists() else {}
+
+
+def online_food(q):
+    fields = "code,product_name,product_name_ru,brands,nutriments,nutrition_data_per"
+    barcode = bool(food_catalog.BARCODE.fullmatch(q))
+    try:
+        if barcode:
+            data = fetch("https://world.openfoodfacts.org/api/v2/product/" + q + ".json?fields=" + fields)
+            if isinstance(data, dict) and data.get("status") == 0:
+                return 200, []
+            products = [data["product"]]
+        else:
+            params = urlencode(dict(search_terms=q, search_simple=1, lc="ru", json=1, page_size=15, fields=fields, action="process"))
+            products = fetch("https://ru.openfoodfacts.org/cgi/search.pl?" + params)["products"]
+        if not isinstance(products, list) or any(not isinstance(p, dict) for p in products):
+            raise ValueError("Invalid product response")
+        return 200, products
+    except (OSError, HTTPException, ValueError, KeyError, TypeError) as error:
+        if isinstance(error, HTTPError):
+            error.close()
+            if barcode and error.code == 404:
+                return 200, []
+        reason = "bad_data" if isinstance(error, (KeyError, TypeError)) else food_catalog.failure(error)
+        logging.warning("Open Food Facts %s: %s", "barcode" if barcode else "search", reason)
+        return (429 if reason == "rate_limit" else 504 if reason == "timeout" else 502), {"reason": reason}
 
 
 def allowed_profiles(settings, user_id):
@@ -128,20 +156,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, weight(who))
         if url.path == "/food":
             q = parse_qs(url.query).get("q", [""])[0].strip()[:100]
-            fields = "code,product_name,product_name_ru,brands,nutriments,nutrition_data_per"
-            if re.fullmatch(r"\d{8,14}", q):
-                try:
-                    item = fetch("https://world.openfoodfacts.org/api/v2/product/" + q + ".json?fields=" + fields)
-                except HTTPError as error:
-                    if error.code != 404:
-                        raise
-                    error.close()
-                    item = {}
-                return self.reply(200, [item["product"]] if item.get("product") else [])
+            if parse_qs(url.query).get("source") == ["catalog"]:
+                return self.reply(200, catalog.lookup(q) if len(q) >= 2 else {"status": "ready", "products": []})
             if len(q) < 2:
                 return self.reply(200, [])
-            params = urlencode(dict(search_terms=q, search_simple=1, lc="ru", json=1, page_size=15, fields=fields, action="process"))
-            return self.reply(200, fetch("https://ru.openfoodfacts.org/cgi/search.pl?" + params)["products"])
+            return self.reply(*online_food(q))
         if url.path == "/catalog.js":
             script = "const exerciseCatalog = " + json.dumps(CATALOG) + "; const exercisePhotoBase = 'photos/';"
             return self.reply(200, script.encode(), "text/javascript")
@@ -176,5 +195,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     DATA.mkdir(parents=True, exist_ok=True)
+    Thread(target=catalog.prepare,daemon=True).start()
     Thread(target=measurements.poll,args=(Event(), DATA/"sport.db",PROFILES,options,core),daemon=True).start()
     ThreadingHTTPServer((os.environ.get("SPORT_BIND", "0.0.0.0"), int(os.environ.get("SPORT_PORT","8099"))), Handler).serve_forever()

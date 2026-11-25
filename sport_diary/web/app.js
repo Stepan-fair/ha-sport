@@ -37,6 +37,10 @@ function initial(){
 async function request(path,body){
  const signal=typeof AbortSignal!=="undefined"&&AbortSignal.timeout?AbortSignal.timeout(12000):undefined;
  const r=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal}:{signal});
+ if(!r.ok&&path.startsWith("food?")){
+   const data=await r.json().catch(()=>({}));
+   throw Object.assign(Error("Не удалось выполнить поиск."),{status:r.status,reason:data?.reason});
+ }
  if(!r.ok) throw Object.assign(Error(r.status===409?"Профиль изменён на другом устройстве. Обнови страницу и повтори сохранение.":r.status===403?"Нет доступа к этому профилю HA.":"Сервер недоступен. Повтори сохранение после восстановления связи."),{status:r.status});
  return r.json();
 }
@@ -341,27 +345,48 @@ function food(){
 let foodSearchId=0;
 function showFoodMatches(panel,message,offerOnline){
  const rows=results.map((item,index)=>{
-   const origin=pantry.includes(item)?'<a href="'+esc(item.source)+'" target="_blank" rel="noopener noreferrer">Карточка продукта ↗</a>':item.online?'Open Food Facts · ODbL':'Из дневника';
+   const origin=pantry.includes(item)?'<a href="'+esc(item.source)+'" target="_blank" rel="noopener noreferrer">Карточка продукта ↗</a>':item.catalogItem?'Каталог на HA':item.online?'Онлайн · Open Food Facts':'Из дневника';
    return '<div class="foodMatch">'+btn("pick-"+index,esc(item.name))+'<small>'+origin+'</small></div>';
  });
- panel.innerHTML=rows.join("")+(message?'<p>'+esc(message)+'</p>':'')+(offerOnline?btn("search-online","Искать в Open Food Facts"):'');
+ const credit=results.some(item=>item.catalogItem||item.online)?'<small>© <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener noreferrer">Участники Open Food Facts</a> · <a href="https://github.com/TerjeRu/lethio-food-db" target="_blank" rel="noopener noreferrer">Каталог Lethio</a> · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a></small>':'';
+ panel.innerHTML=rows.join("")+credit+(message?'<p>'+esc(message)+'</p>':'')+(offerOnline?btn("search-online","Искать в Open Food Facts"):'');
+}
+const foodErrors={
+ dns:"HA не смог определить сетевой адрес сервиса (DNS).",
+ timeout:"Сервис не ответил вовремя.",
+ rate_limit:"Сервис временно ограничил число запросов. Попробуй позже.",
+ blocked:"Сервис отклонил запрос от HA (HTTP 403).",
+ tls:"HA не смог установить защищённое соединение.",
+ bad_data:"Сервис вернул данные в неожиданном формате.",
+ unavailable:"HA не удалось получить ответ от сервиса."
+};
+function foodFailure(reason){
+ return foodErrors[reason]||(/^http_\d{3}$/.test(reason)?"Сервис вернул HTTP "+reason.slice(5)+".":"Не удалось получить данные.");
 }
 async function startFoodSearch(forceOnline){
  const q=val("query").trim(),panel=$("matches"),id=++foodSearchId;
- results=[];
- if(q.length<2){showFoodMatches(panel,"Введи хотя бы две буквы названия или штрихкод.",false);return}
- const local=distinctFoods(localFoods(q,state.products||[],state.meals));
- results=local;
- if(local.length&&!forceOnline){showFoodMatches(panel,"",true);return}
- showFoodMatches(panel,"Ищу в Open Food Facts…",false);
- const current=()=>id===foodSearchId&&$("matches")===panel;
+ if(q.length<2){results=[];showFoodMatches(panel,"Введи хотя бы две буквы названия или штрихкод.",false);return}
+ if(!forceOnline)results=distinctFoods(localFoods(q,state.products||[],state.meals));
+ showFoodMatches(panel,forceOnline?"Ищу в Open Food Facts…":"Ищу в каталоге на HA…",false);
+ const current=()=>id===foodSearchId&&$("matches")===panel&&val("query").trim()===q;
  try{
-   const remote=await request("food?q="+encodeURIComponent(q));
+   const response=await request((forceOnline?"food?q=":"food?source=catalog&q=")+encodeURIComponent(q));
    if(!current())return;
-   results=distinctFoods([...local,...remote.filter(Boolean).map(importedFood)]);
-   showFoodMatches(panel,results.length===local.length?"Других совпадений нет. Можно внести продукт по этикетке.":"",false);
- }catch{
-   if(current())showFoodMatches(panel,"Open Food Facts сейчас недоступен. Можно повторить поиск или заполнить порцию по этикетке.",true);
+   if(forceOnline){
+     const before=results.length;
+     results=distinctFoods([...results,...response.filter(Boolean).map(importedFood)]);
+     showFoodMatches(panel,results.length===before?"Других совпадений в Open Food Facts нет. Можно ввести данные с упаковки.":"",false);
+   }else{
+     results=distinctFoods([...results,...response.products]);
+     const status={loading:"Расширенный каталог загружается на HA. Уже можно выбрать продукт или ввести его вручную.",
+       unavailable:"HA пока не загрузил расширенный каталог. "+foodFailure(response.reason)+" Загрузка повторится автоматически.",
+       demo:"В демо доступны встроенные карточки и твои продукты. Полный каталог открывается в HA."};
+     showFoodMatches(panel,status[response.status]||(!results.length?"В каталоге совпадений нет. Можно поискать онлайн или ввести данные с упаковки.":""),response.status!=="demo");
+   }
+ }catch(error){
+   if(!current())return;
+   const message=error.status===403?"У этого аккаунта нет доступа к поиску в HA.":error.reason?(error.reason==="demo"?error.message:"Open Food Facts. "+foodFailure(error.reason)):"Не удалось получить ответ от приложения на HA. Повтори поиск.";
+   showFoodMatches(panel,message,forceOnline&&error.status!==403);
  }
 }
 document.addEventListener("keydown",ev=>{
