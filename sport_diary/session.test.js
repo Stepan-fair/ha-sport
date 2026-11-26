@@ -28,13 +28,17 @@ test("Старт, изменение числа подходов, отмена �
  assert.match(preview,/Разминка.*15 мин/s);
  assert.match(preview,/Заминка.*5 мин/s);
  await run('action("start")');const n=run("draft.exercises[0].sets.length");
+ const marker=entries.get("profile/person1")?.data?.workoutDrafts;assert.equal(marker?.[run("draft.id")]?.date,"2026-01-01T10:00");
+ // Another client sees only the persisted profile, without this device's workout fields.
+ const reportFromServer=()=>require("./web/reports").diaryReport(entries.get("profile/person1").data,[],"","2026-01-01","day","2026-01-02").rows[0];
+ assert.equal(reportFromServer().trainingStatus,"В процессе");assert.equal(reportFromServer().points,0);
  const sessionHtml=run("workout()");
  assert.ok(sessionHtml.indexOf('id="sec0"')<sessionHtml.indexOf('id="k0_0"'));
  assert.ok(sessionHtml.indexOf('id="sec1"')>sessionHtml.lastIndexOf('class="set"'));
  assert.equal(run("draft.cardio.every(c=>!Object.keys(c).length)"),true);
  await run('action("add-0")');assert.equal(run("draft.exercises[0].sets.length"),n+1);
  await run('action("sub-0")');assert.equal(run("draft.exercises[0].sets.length"),n);
- await run('action("cancel")');assert.equal(run("draft"),null);assert.equal(entries.size,0);
+ await run('action("cancel")');assert.equal(run("draft"),null);assert.deepEqual(entries.get("profile/person1").data.workoutDrafts,{});
  await run('action("start")');node("end").value="2026-01-01T11:00";
  run('draft.end=$("end").value;draft.exercises[0].sets[0].done=true');
  const original=run("draft.exercises[0].name");
@@ -55,6 +59,7 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
  await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.length,1);
  assert.deepEqual(entries.get("profile/person1").data.workouts[0].cardio,[]);
+ assert.deepEqual(entries.get("profile/person1").data.workoutDrafts,{});assert.equal(reportFromServer().trainingStatus,"Тренировка");
  assert.equal(entries.has("profile/person2"),false);
  run('selectDay("2026-01-04")');node("start").value="2026-01-04T23:40";
  await run('action("start")');node("end").value="2026-01-05T00:15";
@@ -67,6 +72,14 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(Number(cardio.distance),1140);assert.equal(cardio.seconds,760);assert.equal(cardio.kcal,83);assert.equal(cardio.hr,undefined);
  await run('action("edit-workout-"+state.workouts.at(-1).id)');
  assert.match(run("workout()"),/id="distance0"[^>]*value="1\.14"/);await run('action("cancel")');
+ // Editing the timestamps moves the same workout; deleting it restores both days.
+ const movedId=run("state.workouts.at(-1).id");
+ await run('action("edit-workout-"+state.workouts.at(-1).id)');
+ node("start").value="2026-01-12T19:00";node("end").value="2026-01-12T19:35";run('draft.end=$("end").value');
+ await run('action("finish")');
+ assert.equal(entries.get("profile/person1").data.workouts.find(w=>w.id===movedId).date,"2026-01-12T19:00");
+ await run('action("delete-workout-"+state.workouts.at(-1).id)');
+ assert.equal(entries.get("profile/person1").data.workouts.some(w=>w.id===movedId),false);
  const oldExercise={name:"Жим ногами",previous:"",sets:[{kg:72,reps:9,done:true,easy:false}]};
  const oldDay="2026-01-02",oldDraft={id:"old-open",date:oldDay+"T10:00",exercises:[oldExercise],cardio:[{},{}]};
  const legacy={rev:7,data:{profile:{equipment:["Жим ногами"],exerciseNotes:{"exercise:жим ногами":"Сиденье 3"}},
@@ -77,9 +90,21 @@ test("Старт, изменение числа подходов, отмена �
  assert.deepEqual(JSON.parse(run("JSON.stringify(draft)")),oldDraft);
  assert.match(run('workout()'),/Жим ногами · тренажёр не указан/);
  assert.match(run('notePanel("Жим ногами",0)'),/Сиденье 3/);
+ const cardBefore=()=>run('summary(state.workouts[0])');
+ run('state.profile.height=180;state.profile.sex="Мужской";state.profile.birth="2000-03-01";state.weights=[{date:"2026-01-01T11:15",kg:90,source:"manual"}]');
+ assert.doesNotMatch(cardBefore(),/ккал за занятие/);
+ assert.equal(run('diaryReport(state,[],null,"2026-01-01","day").rows[0].active'),null);
+ run('state.weights.push({date:"2026-01-01T09:59",kg:80,source:"manual"})');
+ assert.match(cardBefore(),/294 ккал за занятие/);
+ assert.match(cardBefore(),/вес 80 кг/);
+ // 294 gross minus 1 h of baseline at 90 kg (2286 kcal/day).
+ assert.equal(run('diaryReport(state,[],null,"2026-01-01","day").rows[0].active'),199);
+ run('state.workouts[0].kg=70');
+ assert.match(cardBefore(),/257 ккал за занятие/);
  assert.doesNotMatch(run('notePanel("Жим ногами горизонтальный",0)'),/Сиденье 3/);
- assert.equal(entries.get("profile/person1").rev,7);
- run('who="person2";selectDay("2026-01-06")');await run("load()");
+ assert.equal(entries.get("profile/person1").rev,8);
+ node("who").value="person2";await run('$("who").onchange()');await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(run("who"),"person2");run('selectDay("2026-01-06")');
  assert.equal(run("draft"),null);
  run("tab=1;state.profile.minutes=60");
  node("start").value="2026-01-06T10:00";await run('action("start")');
@@ -95,7 +120,7 @@ test("Старт, изменение числа подходов, отмена �
  node("end").value="2026-01-06T10:55";await run('action("finish")');
  const recorded=entries.get("profile/person2").data.workouts[0];
  assert.equal(recorded.exercises.length,initialCount);assert.deepEqual(recorded.cardio,[]);
- assert.equal(entries.get("profile/person1").rev,7);
+ assert.equal(entries.get("profile/person1").rev,8);
  const newSachet=run('doseFields("Протеин",{},selectedDay,false)');
  assert.match(newSachet,/name="powderPerServing"[^>]*value="30"/);
  assert.match(run('doseFields("Протеин",{},selectedDay,true)'),/name="powderPerServing"[^>]*value=""/);
@@ -115,5 +140,5 @@ test("Старт, изменение числа подходов, отмена �
  run('selectDay("2026-11-27");render()');
  wall+=86400000;for(const fn of listeners.visibilitychange)fn();
  assert.match(node("content").innerHTML,/id="doseStatus">Не принимал/);
- assert.equal(entries.get("profile/person1").rev,7);
+ assert.equal(entries.get("profile/person1").rev,8);
 });

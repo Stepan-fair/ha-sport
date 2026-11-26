@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 from threading import BoundedSemaphore
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 RUNNER = Path(__file__).resolve().parent / "web" / "nutrition-summary.js"
@@ -19,6 +19,83 @@ FIELDS = {"operationId", "date", "name", "unit", "nut", "basis", "pieceName", "s
 
 class BadPortion(ValueError):
     pass
+
+
+PROTEIN_KINDS = ("protein", "protein_mix")
+PROTEIN_VALUES = ("servings", "powderGrams", "proteinGrams")
+FIELDS.update(("productKind", "proteinDetails", "linkDoseId"))
+
+
+def protein_names(row):
+    return [name for name in row.get("names", []) if isinstance(name, str) and re.search("протеин|protein", name, re.I)]
+
+
+def available_protein_doses(state, day):
+    meal_ids = {meal.get("id") for _, meal in meals_in(state) if isinstance(meal.get("id"), str)}
+    for index, row in enumerate(state.get("supps", [])):
+        if (not isinstance(row, dict) or not protein_names(row) or
+                (isinstance(row.get("mealId"), str) and row["mealId"] in meal_ids) or
+                str(row.get("date", ""))[:10] != day):
+            continue
+        token = operation_signature([index, row])
+        clock = str(row["date"])[11:16]
+        period = row.get("period") if row.get("period") in ("Утро", "День", "Вечер", "Ночь") else ""
+        count = row.get("servings")
+        yield row, {"id": token, "time": clock if re.fullmatch(r"\d\d:\d\d", clock) else period,
+                    "servings": count if bounded_number(count, positive=True) else None}
+
+
+def link_new_meal(state, meal, token):
+    if not token:
+        return
+    for row, candidate in available_protein_doses(state, meal["date"][:10]):
+        if candidate["id"] == token:
+            names = protein_names(row)
+            other = [name for name in row["names"] if name not in names]
+            if other:
+                state["supps"].insert(next(i for i, entry in enumerate(state["supps"]) if entry is row),
+                                      {**row, "names": other})
+            row.update(names=names, mealId=meal["id"])
+            return
+    raise BadPortion("Отметка протеина уже изменилась. Выберите её ещё раз.")
+
+
+def move_meal_links(state, before, updated):
+    old_day, new_day = before["date"][:10], updated["date"][:10]
+    if old_day == new_day:
+        return
+    rows = []
+    for row in state.get("supps", []):
+        if row.get("mealId") != updated["id"] or row.get("date", "")[:10] != old_day or not protein_names(row):
+            rows.append(row)
+            continue
+        names = protein_names(row)
+        others = [name for name in row["names"] if name not in names]
+        if others:
+            rest = {**row, "names": others}
+            rest.pop("mealId", None)
+            rows.append(rest)
+        rows.append({**row, "names": names, "date": new_day + row["date"][10:]})
+    state["supps"] = rows
+
+
+def adjust_meal_protein(before, updated):
+    info = before.get("proteinDetails")
+    if not isinstance(info, dict):
+        return
+    old, new = before.get("portion", {}), updated.get("portion", {})
+    scale = 1
+    if old.get("mode", "base") == new.get("mode", "base"):
+        was = old.get("count", before.get("amount"))
+        now = new.get("count", updated.get("amount"))
+        if bounded_number(was, positive=True) and bounded_number(now, positive=True):
+            scale = now / was
+    updated["proteinDetails"] = {k: v * scale for k, v in info.items() if k in PROTEIN_VALUES and bounded_number(v)}
+    if updated.get("productKind") == "protein_mix":
+        protein = updated["proteinDetails"].get("proteinGrams")
+        total = updated.get("totals", [None]*4)[1]
+        if protein is not None and total is not None and protein > total:
+            raise BadPortion("Белок порошка превышает белок в исправленной порции.")
 
 
 def bounded_number(value, *, positive=False):
@@ -94,6 +171,13 @@ def make_meal(body):
                             not bounded_number(oil.get("grams"), positive=True) or not valid_nutrients(oil.get("nut"))):
         raise BadPortion("Укажите количество масла и КБЖУ по этикетке.")
     card = {"name": name.strip(), "code": code, "nut": nut, "unit": unit, "basis": basis, "origin": origin}
+    if "productKind" in body:
+        if body["productKind"] not in PROTEIN_KINDS:
+            raise BadPortion("Проверьте вид продукта.")
+        card["productKind"] = body["productKind"]
+    if "linkDoseId" in body and (not body.get("productKind") or not isinstance(body["linkDoseId"], str) or
+                                 not re.fullmatch("[0-9a-f]{64}", body["linkDoseId"])):
+        raise BadPortion("Проверьте связь с отметкой протеина.")
     if sizes:
         card["sizes"] = sizes
     if piece_name:
@@ -102,6 +186,14 @@ def make_meal(body):
     if "error" in result:
         raise BadPortion(result["error"])
     meal = {**card, **result, "date": stamp, "id": "nutrition-" + op, "oneOff": body.get("oneOff", False)}
+    info = body.get("proteinDetails")
+    if "proteinDetails" in body:
+        if (not body.get("productKind") or not isinstance(info, dict) or set(info) - set(PROTEIN_VALUES) or
+                any(not bounded_number(value, positive=key != "proteinGrams") for key, value in info.items())):
+            raise BadPortion("Проверьте состав порошка в порции.")
+        if "proteinGrams" in info and (body["productKind"] != "protein_mix" or info["proteinGrams"] > meal["totals"][1]):
+            raise BadPortion("Проверьте белок порошка в составе блюда.")
+        meal["proteinDetails"] = dict(info)
     if note:
         meal["estimateNote"] = note
     return meal
@@ -109,6 +201,44 @@ def make_meal(body):
 
 def operation_signature(body):
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def card_key(card):
+    return card.get("code") or str(card.get("name", "")).strip().casefold()
+
+
+def version_targets(data, previous):
+    """Preserve meal identity across list edits and invalidate proposals after any target change."""
+    for collection, key in (("meals", "id"), ("products", "_cardId")):
+        old = {row.get(key): row for row in previous.get(collection, []) if isinstance(row, dict) and row.get(key)}
+        old_cards = {card_key(row): row for row in old.values()} if collection == "products" else {}
+        seen = set()
+        for index, row in enumerate(data.get(collection, [])):
+            if not isinstance(row, dict):
+                continue
+            ident = row.get(key)
+            if not ident and collection == "products":
+                ident = old_cards.get(card_key(row), {}).get(key)
+            if not safe_text(ident, 160) or not ident or ident in seen:
+                ident = str(uuid4())
+                if collection == "meals" and not row.get(key):
+                    alias = f"legacy-{index}-{row.get('date', '')}"
+                    for dose in data.get("supps", []):
+                        if isinstance(dose, dict) and dose.get("mealId") == alias:
+                            dose["mealId"] = ident
+            row[key] = ident
+            seen.add(ident)
+            prev = old.get(ident)
+            if prev and prev.get("_foodVersion"):
+                row["_foodVersion"] = prev["_foodVersion"]
+                if row == prev:
+                    continue
+            row["_foodVersion"] = str(uuid4())
+
+
+def needs_target_ids(data):
+    return any(not row.get(key) or not row.get("_foodVersion") for collection, key in
+               (("meals", "id"), ("products", "_cardId")) for row in data.get(collection, []) if isinstance(row, dict))
 
 
 def public_card(item):
@@ -120,13 +250,19 @@ def public_card(item):
         if item.get(k) in options:
             result[k] = item[k]
     nut = item.get("nut")
+    if item.get("productKind") in PROTEIN_KINDS:
+        result["productKind"] = item["productKind"]
     result["nut"] = [v if bounded_number(v) else None for v in nut] if isinstance(nut, list) and len(nut) == 4 else [None]*4
     sizes = item.get("sizes")
     if isinstance(sizes, dict):
         result["sizes"] = {k: v for k, v in sizes.items() if k in MODES[1:] and bounded_number(v, positive=True)}
     preferred = item.get("preferred")
-    if isinstance(preferred, dict) and preferred.get("mode") in MODES and bounded_number(preferred.get("count"), positive=True):
-        result["preferred"] = {"mode": preferred["mode"], "count": preferred["count"]}
+    if isinstance(preferred, dict) and preferred.get("mode") in MODES:
+        result["preferred"] = {"mode": preferred["mode"]}
+        if bounded_number(preferred.get("count"), positive=True):
+            result["preferred"]["count"] = preferred["count"]
+    if item.get("_cardId") and item.get("_foodVersion"):
+        result.update(id=item["_cardId"], version=item["_foodVersion"])
     return result
 
 
@@ -153,28 +289,30 @@ def remember_new_card(data, meal):
             continue
         if meal["code"] and saved.get("code"):
             if meal["code"] == saved["code"]:
-                return
+                return saved
         elif meal["name"].casefold() == str(saved.get("name", "")).strip().casefold():
-            return
-    cards.insert(0, public_card(meal))
+            return saved
+    card = public_card(meal)
+    cards.insert(0, card)
+    return card
 
 
-def public_meal(item, index):
+def public_meal(item, index, totals=None):
     card = public_card(item)
     card.pop("preferred", None)
     stamp = item.get("date")
     card["date"] = stamp if safe_text(stamp, 40) else ""
-    card["id"] = item.get("id") if safe_text(item.get("id"), 160) else f"legacy-{index}-{card['date']}"
+    card["id"] = item["id"]
+    card["version"] = item["_foodVersion"]
     try:
         amount = float(item.get("amount"))
     except (TypeError, ValueError, OverflowError):
         amount = None
     card["amount"] = amount if amount is not None and math.isfinite(amount) and amount > 0 else None
-    stored = item.get("totals")
-    if isinstance(stored, list) and len(stored) == 4:
-        card["totals"] = [v if type(v) in (int, float) and math.isfinite(v) and v >= 0 else None for v in stored]
-    else:
-        card["totals"] = [v * card["amount"] / 100 if v is not None and card["amount"] is not None else None for v in card["nut"]]
+    card["totals"] = totals if totals is not None else daily_calculation("mealTotals", [item])[0]
+    info = item.get("proteinDetails")
+    if card.get("productKind") and isinstance(info, dict):
+        card["proteinDetails"] = {k: info[k] for k in PROTEIN_VALUES if bounded_number(info.get(k))}
     portion, oil = item.get("portion"), item.get("oil")
     if isinstance(portion, dict) and portion.get("mode") in MODES and bounded_number(portion.get("count"), positive=True):
         size = portion.get("size")
@@ -189,3 +327,65 @@ def public_meal(item, index):
 
 def meals_in(state):
     return ((i, m) for i, m in enumerate(state.get("meals", [])) if isinstance(m, dict))
+
+
+def validate_preference(card, change):
+    if not isinstance(change, dict) or set(change) - {"mode", "count"} or change.get("mode") not in MODES:
+        raise BadPortion("Выберите обычную единицу.")
+    if "count" in change and not bounded_number(change["count"], positive=True):
+        raise BadPortion("Оставьте обычное количество пустым или укажите положительное число.")
+    mode = change["mode"]
+    if ((mode == "piece" and not card.get("pieceName")) or
+            (mode != "base" and not card.get("sizes", {}).get(mode) and not (mode == "piece" and card.get("basis") == "piece")) or
+            (mode != "piece" and card.get("basis") == "piece" and not card.get("sizes", {}).get("piece"))):
+        raise BadPortion("Для выбранной единицы нужны название штуки или размер единицы в карточке.")
+
+
+def proposed_card(card):
+    allowed = {"name", "unit", "nut", "basis", "pieceName", "sizes", "code", "origin"}
+    if not isinstance(card, dict) or set(card) - allowed:
+        raise BadPortion("Недопустимые поля новой карточки.")
+    basis = card.get("basis", "100")
+    # Reuse the intake validator for the label without creating a diary entry.
+    sample = make_meal({**card, "mode": "piece" if basis == "piece" else "base", "count": 1,
+                        "date": datetime.now().isoformat(timespec="minutes"), "operationId": str(uuid4())})
+    return public_card(sample)
+
+
+def corrected_meal(meal, change):
+    if not isinstance(change, dict) or not change or set(change) - {"count", "date", "nut", "oil"}:
+        raise BadPortion("Можно предложить дату и время, количество, КБЖУ или масло для одной порции.")
+    updated = dict(meal)
+    if "date" in change:
+        stamp = change["date"]
+        try:
+            instant = datetime.fromisoformat(stamp)
+            if instant.isoformat(timespec="minutes") != stamp or instant.tzinfo or instant > datetime.now():
+                raise ValueError
+        except (TypeError, ValueError):
+            raise BadPortion("Укажите фактическую местную дату и время.") from None
+        updated["date"] = stamp
+    if change.keys() - {"date"}:
+        card = public_card(meal)
+        if "nut" in change:
+            if not valid_nutrients(change["nut"], allow_unknown=True):
+                raise BadPortion("Проверьте КБЖУ этикетки.")
+            card["nut"] = updated["nut"] = change["nut"]
+        portion = meal.get("portion") or {}
+        mode = portion.get("mode", "base")
+        count = change.get("count", portion.get("count", meal.get("amount")))
+        if not bounded_number(count, positive=True):
+            raise BadPortion("Укажите фактически съеденное количество.")
+        if mode != "base" and bounded_number(portion.get("size"), positive=True):
+            card.setdefault("sizes", {}).setdefault(mode, portion["size"])
+        oil = change.get("oil", meal.get("oil"))
+        if oil is not None and (not isinstance(oil, dict) or set(oil) != {"grams", "nut"} or
+                              not bounded_number(oil.get("grams"), positive=True) or not valid_nutrients(oil.get("nut"), allow_unknown=True)):
+            raise BadPortion("Проверьте количество и КБЖУ масла.")
+        result = daily_calculation("portion", {"card": card, "mode": mode, "count": count, "oil": oil, "original": meal})
+        if "error" in result:
+            raise BadPortion(result["error"])
+        updated.pop("oil", None)
+        updated.update(result)
+        adjust_meal_protein(meal, updated)
+    return updated

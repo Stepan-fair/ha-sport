@@ -24,7 +24,7 @@
    fire("pointermove",a,b);fire("pointerup",a,b);await frame();
  }
  try{
- await frame();
+ for(let attempt=0;attempt<100&&!el(".calDay");attempt++)await frame();
  const today=local().slice(0,10);
  verify(limitedAccount ? who==="person2"&&$("who").hidden&&$("who").options.length===1&&!$("single-profile").hidden :
         who==="person1"&&!$("who").hidden&&$("who").options.length===2&&$("single-profile").hidden,"account scope on first load");
@@ -38,7 +38,7 @@
  await actionButton("show-calendar");await actionButton("date-"+prev+"-19");
  verify(el('[data-tab="2"]').getAttribute("aria-current")==="page"&&$("mealdate").value.startsWith(prev+"-19"),"picking a date preserves the active food tab");
  await actionButton("show-calendar");await actionButton("date-"+day);
- await actionButton("food-complete");verify(!state.foodComplete?.[day]&&$("message").textContent.includes("порцию"),"empty day cannot be marked complete");
+ verify(!el('[data-action="food-complete"]'),"nutrition status is calculated from intake");
  for(const spelling of ["тврог","тварог"]){
    set("query",spelling);
    await new Promise(resolve=>setTimeout(resolve,500));
@@ -78,8 +78,8 @@
  set("amount","200");await actionButton("meal");
  verify($("entries").textContent.includes("234 ккал")&&state.meals[0].date.startsWith(day),"save 200 g of cottage cheese on selected day");
  verify($("entries").textContent.includes("30 г белка")&&state.meals[0].origin==="Встроенный каталог","portion nutrients and source shown together");
- await actionButton("food-complete");window.confirm=()=>true;await actionButton("remove-meal-"+state.meals[0].id);
- verify(!state.foodComplete[day],"removing the last meal clears completion");
+ window.confirm=()=>true;await actionButton("remove-meal-"+state.meals[0].id);
+ verify(diaryReport(state,scale,boundScale(),day,"day").foodDays===0,"removing the last meal removes the nutrition day");
  set("query","4600605029312");await actionButton("search");await actionButton("pick-0");
  set("size-package","200");set("usual-mode","package");set("usual-count","1");await actionButton("save-food-card");
  verify(!visible("save-food-card"),"saved card settings are clean");
@@ -109,7 +109,7 @@
  await actionButton("meal");verify(state.meals.length===1&&state.meals[0].amount===210&&state.meals[0].id===mealId,"correct saved portion in place");
  set("query","4600000000008");await actionButton("search");await actionButton("pick-0");
  verify($("product").value==="Кефир"&&$("barcode").value==="4600000000008","offline cached barcode");
- await actionButton("food-complete");verify(!!state.foodComplete[day],"food completion");
+ verify(diaryReport(state,scale,boundScale(),day,"day").foodDays===1,"saved portion counts without a manual completion flag");
  await actionButton("repeat-meal-"+mealId);await actionButton("meal");
  const otherId=state.meals[1].id;
  verify(otherId!==mealId,"repeating a meal allocates a distinct ID");
@@ -325,7 +325,8 @@
  verify(!el('[data-action="save-note-'+added+'"]').closest("details").querySelector("textarea").value&&state.profile.exerciseNotes[noteKey(horizontal)]==="Сиденье горизонтального 6","horizontal seat note is saved separately from the 45 degree sled");
  await actionButton("cancel");
  await go(0);verify(!el('[data-action="rest-log"]'),"training takes precedence over rest");
- const another=shiftDay(day,-1);selectDay(another);render();await actionButton("rest-log");verify(state.restLog[another],"rest is recorded on selected date");await actionButton("rest-log");
+ const another=shiftDay(day,-1);selectDay(another);render();
+ verify(!el('[data-action="rest-log"]')&&diaryReport(state,scale,boundScale(),another,"day").rows[0].trainingStatus==="Отдых","past day without training shows automatic rest");
  selectDay(day);render();await actionButton("report-day");
  verify(el('[data-action="period-day"]').getAttribute("aria-pressed")==="true"&&!!el(".rewardBanner"),"open day report and personal score");
  const dayEnergy=diaryReport(state,scale,boundScale(),day,"day").rows[0];
@@ -350,8 +351,6 @@
  $("who").value="person1";$("who").dispatchEvent(new Event("change"));await frame();
  verify(who==="person2" && !visited.some(path=>path.endsWith("/person1")),"restricted account never requests the other diary");
  verify(!errors.length,"no uncaught application errors");
- const recorded=parent.document.getElementById("requests");
- recorded.hidden=true;recorded.textContent=JSON.stringify(exchanges);
  out.textContent="PASS "+checks.length+" scenarios";
  }catch(e){out.textContent="FAIL after "+checks.join(", ")+": "+e.message}
 })();

@@ -115,10 +115,18 @@ function providerFoodQuery(query) {
 function importedFood(item) {
   const title = item?.product_name_ru || item?.product_name;
   if (!title) return null;
-  const nut = ["energy-kcal", "proteins", "fat", "carbohydrates"].map(key => {
+  function perHundred(key) {
     const value = item.nutriments?.[key + "_100g"];
-    return value != null && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
-  });
+    if (typeof value !== "number" && !(typeof value === "string" && value.trim())) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  const nut = ["energy-kcal", "proteins", "fat", "carbohydrates"].map(perHundred);
+  if (nut[0] === null) {
+    // Open Food Facts normalizes the generic energy_100g field to kilojoules.
+    const kj = perHundred("energy-kj") ?? perHundred("energy");
+    if (kj !== null) nut[0] = kj * 1000 / 4184;
+  }
   return {name: [title, item.brands].filter(Boolean).join(" · "), code: String(item.code || ""), quantity: item.quantity || "",
     nut, unit: item.nutrition_data_per === "100ml" ? "мл" : "г", online: true};
 }

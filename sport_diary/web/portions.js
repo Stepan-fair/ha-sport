@@ -40,10 +40,19 @@ const SportPortions = (() => {
     const amount = size === null ? null : count * size;
     if (perPiece && mode !== "piece" && !card.sizes?.piece) throw Error("Для пересчёта укажи размер одной штуки в г/мл.");
     const factor = perPiece ? (mode === "piece" ? count : amount / number(card.sizes.piece, "Размер одной штуки")) : amount / 100;
-    const baseTotals = nutrients(card.nut, perPiece || mode === "piece").map(value => value === null ? null : value * factor);
+    const baseTotals = nutrients(card.nut, !input.allowPartial && (perPiece || mode === "piece")).map(value => value === null ? null : value * factor);
     let oil;
-    if (input.oil) oil = {grams:number(input.oil.grams, "Масло, г"), nut:nutrients(input.oil.nut, true)};
-    const totals = baseTotals.map((value, i) => value === null ? null : value + (oil ? oil.nut[i] * oil.grams / 100 : 0));
+    if (input.oil) oil = {grams:number(input.oil.grams, "Масло, г"), nut:nutrients(input.oil.nut, !input.allowPartial)};
+    const totals = baseTotals.map((value, i) => value === null || oil && oil.nut[i]===null ? null : value + (oil ? oil.nut[i] * oil.grams / 100 : 0));
+    const old=input.original;
+    if(old && old.name===card.name && old.unit===card.unit && (old.basis||"100")===(card.basis||"100") &&
+       (old.portion?.mode||"base")===mode && Number(old.portion?.count??old.amount)===count &&
+       Number(old.amount)===Number(amount) && (mode==="piece" || !perPiece || old.sizes?.piece===card.sizes?.piece)){
+      for(let i=0;i<4;i++){
+        const sameOil=(old.oil?.grams??0)===(oil?.grams??0) && (old.oil?.nut?.[i]??null)===(oil?.nut?.[i]??null);
+        if(sameOil && (old.nut?.[i]??null)===(card.nut[i]??null) && Number.isFinite(old.totals?.[i]))totals[i]=old.totals[i];
+      }
+    }
     if ((amount !== null && !Number.isFinite(amount)) || totals.some(v => v !== null && !Number.isFinite(v))) throw Error("Проверь количество и КБЖУ.");
     return {amount, portion:{mode, count, size}, baseTotals, totals, ...(oil ? {oil} : {})};
   }
@@ -53,6 +62,22 @@ const SportPortions = (() => {
     const forms = mode === "piece" && card.pieceName?.toLowerCase() === "яйцо" ? words.egg : words[mode];
     const label = forms ? forms[plural.select(count)] : "× " + (card.pieceName || "шт.");
     return format.format(count) + " " + label + (amount == null ? "" : " · " + format.format(amount) + " " + card.unit);
+  }
+
+  function mealNutrients(meal) {
+    const quantity = value => Number.isFinite(value) && value >= 0 ? value : null;
+    const portion = meal.portion || {};
+    const amount = Number(meal.amount) > 0 ? Number(meal.amount) : portion.count * (portion.mode === "base" ? 1 : portion.size);
+    const factor = meal.basis === "piece" ? (portion.mode === "piece" ? portion.count : amount / meal.sizes?.piece) : amount / 100;
+    return [0,1,2,3].map(i => {
+      const stored = quantity(meal.totals?.[i]);
+      if (stored !== null) return stored;
+      const label = quantity(meal.nut?.[i]);
+      const base = quantity(meal.baseTotals?.[i]) ?? (label !== null && factor > 0 ? quantity(label * factor) : null);
+      if (!meal.oil || base === null) return base;
+      const oil = quantity(meal.oil.nut?.[i]), grams = quantity(meal.oil.grams);
+      return oil === null || grams === null ? null : quantity(base + oil * grams / 100);
+    });
   }
 
   function preferredText(card) {
@@ -66,6 +91,28 @@ const SportPortions = (() => {
   function sameProduct(a, b) {
     if (a.code && b.code) return a.code === b.code;
     return a.name.trim().toLocaleLowerCase("ru") === b.name.trim().toLocaleLowerCase("ru");
+  }
+
+  function setDoseLink(state, meal, oldMeal, selected) {
+    const oldDay=oldMeal?.date.slice(0,10), newDay=meal.date.slice(0,10);
+    const entries=state.supps || [];
+    if(selected!=null){
+      const candidate=entries[selected];
+      if(!candidate || candidate.mealId && candidate.mealId!==meal.id && state.meals.some(row=>row.id===candidate.mealId) ||
+         ![oldDay,newDay].includes(candidate.date.slice(0,10)))throw Error("Отметка протеина уже изменилась.");
+    }
+    state.supps=entries.flatMap((entry,i)=>{
+      if(entry.mealId!==meal.id&&i!==selected)return [entry];
+      const linked=i===selected || selected===undefined && entry.mealId===meal.id;
+      const copy={...entry};
+      if(!linked){delete copy.mealId;return [copy]}
+      copy.mealId=meal.id;
+      const isProtein=name=>/протеин|protein/i.test(name);
+      const remainder=entry.names.filter(name=>!isProtein(name));
+      copy.date=newDay+copy.date.slice(10);copy.names=entry.names.filter(isProtein);
+      const rest={...entry,names:remainder};delete rest.mealId;
+      return remainder.length?[rest,copy]:[copy];
+    });
   }
 
   function saveMeal(state, meal, card, editing) {
@@ -89,6 +136,6 @@ const SportPortions = (() => {
     return sorted.filter((m,i) => sorted.findIndex(other => sameProduct(other,m)) === i).slice(0, 5);
   }
 
-  return {number, nutrients, calculate, describe, preferredText, sameProduct, saveMeal, recent};
+  return {number, nutrients, calculate, mealNutrients, describe, preferredText, sameProduct, setDoseLink, saveMeal, recent};
 })();
 if (typeof module !== "undefined") module.exports = SportPortions;

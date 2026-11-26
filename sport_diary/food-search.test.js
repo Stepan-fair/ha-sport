@@ -47,6 +47,23 @@ test("Выбор по данным OFF сохраняет основание К�
   assert.deepEqual(rankedFoods("00123457",[gram]),[]);
 });
 
+test("Энергия из Open Food Facts учитывается один раз на указанное основание",()=>{
+  const {calculate}=require("./web/portions.js");
+  const item={product_name:"Йогурт",nutrition_data_per:"100ml"};
+  const card=nutriments=>importedFood({...item,nutriments});
+  for(const key of ["energy-kj_100g","energy_100g"]){
+    const food=card({[key]:"418.4"});
+    assert.equal(food.unit,"мл");
+    assert.equal(food.nut[0],100);
+    assert.equal(calculate(food,{mode:"base",count:50}).totals[0],50);
+  }
+  for(const kcal of [0,93]){
+    assert.equal(card({"energy-kcal_100g":kcal,"energy-kj_100g":418.4}).nut[0],kcal);
+  }
+  assert.equal(card({"energy-kj_100g":0}).nut[0],0);
+  assert.equal(card({"energy-kj_serving":418.4,"energy-kcal_100g":" "}).nut[0],null);
+});
+
 test("Подсказки появляются при вводе, старый ответ отбрасывается при смене текста, профиля или дня",async()=>{
   const js=name=>fs.readFileSync(path.join(__dirname,"web",name),"utf8");
   const app=js("app.js"), events={}, requests=[];

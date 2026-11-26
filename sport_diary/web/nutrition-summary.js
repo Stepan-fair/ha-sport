@@ -6,17 +6,19 @@ let result;
 if (process.argv[2] === "portion") {
   const {calculate} = require("./portions.js");
   try {
-    result = calculate(input.card, {mode: input.mode, count: input.count, oil: input.oil});
+    result = calculate(input.card, {mode: input.mode, count: input.count, oil: input.oil, original: input.original, allowPartial: !!input.original});
   } catch (error) {
     result = {error: error.message};
   }
+} else if (process.argv[2] === "mealTotals") {
+  result = input.map(require("./portions.js").mealNutrients);
 } else if (process.argv[2] === "day") {
   const {diaryReport, nutritionForDay} = require("./reports.js");
   const {state, day, entity, scale} = input;
   const report = diaryReport(state, scale, entity, day, "day");
   const row = report.rows.find(item => item.day === day);
   const {totals, known, missing, count, supplements} = row?.nutrition || nutritionForDay(state, day);
-  result = {day, totals, known, missing, count, maintenance: row?.maintenance ?? null, complete: !!row?.complete};
+  result = {day, totals, known, missing, count, maintenance: row?.maintenance ?? null, balance: row?.balance ?? null, partialCalories: missing[0] > 0};
   const separate = supplements.filter(item => !item.linked);
   if (separate.length) {
     const protein = separate.map(item => item.nut[1]).filter(Number.isFinite);

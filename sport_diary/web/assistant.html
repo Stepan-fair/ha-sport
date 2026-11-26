@@ -14,6 +14,21 @@
     <h1>Питание за день</h1>
     <label>День дневника<input id="day" type="date" required></label>
     <div id="summary" aria-live="polite"></div>
+    <details><summary>Предложить исправление приёма</summary>
+      <form id="correction-form">
+        <label>Приём за выбранный день<select id="proposal-meal" required></select></label>
+        <p id="proposal-current"></p>
+        <label>Исправленное количество в единице записи<input id="proposal-count" type="number" min="0.000001" step="any"></label>
+        <label>Исправленные дата и время<input id="proposal-date" type="datetime-local"></label>
+        <details><summary>Исправить этикетку или масло</summary>
+          <label>КБЖУ на исходное основание, через пробел<input id="proposal-nut" placeholder="70 6 5 0"></label>
+          <label>Масло в порции, г (0 для удаления)<input id="proposal-oil" type="number" min="0" step="any"></label>
+          <label>КБЖУ масла на 100 г, через пробел<input id="proposal-oil-nut" placeholder="900 0 100 0"></label>
+        </details>
+        <label>Причина поправки<input id="proposal-reason" maxlength="500" required></label>
+        <button id="send-correction">Отправить владельцу на подтверждение</button>
+      </form>
+    </details>
   </article>
   <article>
     <h2>Добавить приём</h2>
@@ -24,6 +39,14 @@
     <div id="card-results" aria-live="polite"></div>
     <form id="assistant-form">
       <label>Продукт или блюдо<input id="name" required maxlength="240"></label>
+      <label>Вид продукта<select id="product-kind"><option value="">Обычная еда</option><option value="protein">Протеиновая добавка</option><option value="protein_mix">Блюдо или напиток с протеиновой добавкой</option></select></label>
+      <div id="protein-fields" hidden>
+        <p>Общие КБЖУ укажите для всей порции. Здесь укажите вклад порошка, если он известен.</p>
+        <label>Саше в съеденной порции<input id="protein-servings" type="number" min="0.000001" step="any"></label>
+        <label>Порошок в съеденной порции, г<input id="protein-powderGrams" type="number" min="0.000001" step="any"></label>
+        <label id="protein-contribution" hidden>Белок из порошка в смешанном блюде, г<input id="protein-proteinGrams" type="number" min="0" step="any"></label>
+        <label>Связь с отметкой протеина<select id="protein-dose"><option value="">Отдельный приём</option></select></label>
+      </div>
       <label>Дата приёма<input id="date" type="date" required></label>
       <label>Фактическое время <span id="zone"></span><input id="time" type="time" required></label>
       <label>Количество<input id="count" type="number" step="any" min="0.000001" required></label>
@@ -49,8 +72,19 @@
       </details>
       <label>Что оценено приблизительно<input id="estimate" maxlength="500" placeholder="Например, масса блюда по фото"></label>
       <label class="check"><input id="one-off" type="checkbox">Только в дневник</label>
+      <p id="assistant-preview" aria-live="polite"></p>
       <div class="actions"><button class="primary" id="save" hidden>Сохранить порцию</button></div>
     </form>
+    <details id="preference-panel"><summary>Предложить обычную единицу карточки</summary>
+      <form id="preference-form">
+        <p>Выберите продукт или заполните его этикетку выше. Владелец проверит изменение в разделе «Питание».</p>
+        <label>Обычная единица<select id="preference-mode"><option value="base">Граммы / миллилитры</option><option value="serving">Порции</option><option value="package">Упаковки</option><option value="piece">Штуки</option></select></label>
+        <label>Обычное количество, если указано<input id="preference-count" type="number" min="0.000001" step="any"></label>
+        <label>Пожелание из чата<input id="preference-reason" maxlength="500" required></label>
+        <label class="check"><input type="checkbox" id="preference-with-meal">Отправить это пожелание вместе с порцией</label>
+        <button id="send-preference">Отправить предпочтение владельцу</button>
+      </form>
+    </details>
     <p id="receipt" role="status"></p>
   </article>
 </main>

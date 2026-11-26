@@ -1,8 +1,11 @@
 """Local HA ingress application. Only the supervisor ingress proxy can reach its API."""
 import json
 import logging
+import math
+from functools import lru_cache
 from http.client import HTTPException
 from contextlib import closing
+from copy import deepcopy
 import os
 import sqlite3
 import subprocess
@@ -16,6 +19,7 @@ import measurements
 import food_catalog
 import nutrition
 from datetime import datetime
+from uuid import UUID
 from photos import CATALOG, PHOTO_PATHS, PHOTO_SOURCE
 
 ROOT = Path(__file__).resolve().parent
@@ -131,15 +135,61 @@ def weight(profile):
     entity, shared = measurements.scale_binding(options(), profile)
     if not entity or shared:
         return None
-    return measurements.reading(core("states/" + entity))
+    return measurements.current_reading(DATA / "sport.db", profile, entity, core("states/" + entity))
+
+
+@lru_cache(maxsize=1)
+def diary_zone():
+    # Node also runs the assistant's report; both views follow the add-on timezone.
+    return os.environ.get("TZ") or subprocess.check_output(
+        ["node", "-p", "Intl.DateTimeFormat().resolvedOptions().timeZone"], text=True, timeout=5).strip()
+
+
+def first_diary_day(data):
+    days = []
+    markers = data.get("workoutDrafts")
+    sources = [data.get(key) for key in ("meals", "workouts", "supps", "weights")]
+    if isinstance(markers, dict):
+        sources.append(list(markers.values()))
+    for rows in sources:
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            value = row.get("date") if isinstance(row, dict) else None
+            if not isinstance(value, str):
+                continue
+            try:
+                stamp = datetime.fromisoformat(value)
+                if stamp.tzinfo:
+                    stamp = stamp.astimezone()
+                days.append(stamp.date().isoformat())
+            except (ValueError, OverflowError):
+                continue
+    return min(days) if days else None
 
 
 def read_state(db, who):
     row = db.execute("SELECT rev, body FROM profile WHERE who=?", (who,)).fetchone()
-    return {"rev": row[0], "data": json.loads(row[1])} if row else {"rev": 0, "data": {}}
+    state = {"rev": row[0], "data": json.loads(row[1])} if row else {"rev": 0, "data": {}}
+    if row and ("diaryStartedOn" not in state["data"] or nutrition.needs_target_ids(state["data"])):
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+            state = read_state(db, who)
+            db.commit()
+        else:
+            previous = deepcopy(state["data"])
+            nutrition.version_targets(state["data"], previous)
+            state["rev"] += 1
+            write_state(db, who, state["rev"], state["data"])
+    return state
 
 
 def write_state(db, who, rev, data):
+    stored = db.execute("SELECT body FROM profile WHERE who=?", (who,)).fetchone()
+    previous = json.loads(stored[0]) if stored else {}
+    origin = previous.get("diaryStartedOn") or first_diary_day(previous)
+    dates = [day for day in (origin, first_diary_day(data), datetime.now().date().isoformat()) if day]
+    data["diaryStartedOn"] = min(dates)
     db.execute("INSERT OR REPLACE INTO profile VALUES (?,?,?)", (who, rev, json.dumps(data)))
 
 
@@ -149,6 +199,7 @@ def save(db, who, body):
     if old["rev"] != body["rev"]:
         return None
     rev = old["rev"] + 1
+    nutrition.version_targets(body["data"], old["data"])
     write_state(db, who, rev, body["data"])
     return rev
 
@@ -156,11 +207,19 @@ def save(db, who, body):
 def open_diary():
     db = sqlite3.connect(DATA / "sport.db")
     db.execute("CREATE TABLE IF NOT EXISTS profile(who TEXT PRIMARY KEY,rev INTEGER,body TEXT)")
+    db.execute("""CREATE TABLE IF NOT EXISTS food_proposal(
+               who TEXT, id TEXT, signature TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL,
+               PRIMARY KEY (who, id))""")
     return db
 
 
 def append_meal(db, who, body):
-    meal = nutrition.make_meal(body)
+    preference = body.get("preferenceProposal") if isinstance(body, dict) else None
+    if preference is not None and (not isinstance(preference, dict) or
+            set(preference) - {"changes", "reason", "targetId", "version"} or
+            not nutrition.safe_text(preference.get("reason"), 500) or not preference["reason"].strip() or body.get("oneOff")):
+        raise nutrition.BadPortion("Укажите пожелание для личной карточки. Разовая запись сохраняет только приём.")
+    meal = nutrition.make_meal({k: v for k, v in body.items() if k != "preferenceProposal"} if isinstance(body, dict) else body)
     signature = nutrition.operation_signature(body)
     # The revision and the operation receipt commit together, including when an owner writes concurrently.
     db.execute("BEGIN IMMEDIATE")
@@ -178,12 +237,170 @@ def append_meal(db, who, body):
         return 200, {"id": meal["id"]}
     if any(m.get("id") == meal["id"] for _, m in nutrition.meals_in(data)):
         return 409, {"error": "Идентификатор записи уже занят."}
+    previous = deepcopy(data)
     data.setdefault("meals", []).append(meal)
-    nutrition.remember_new_card(data, meal)
+    nutrition.link_new_meal(data, meal, body.get("linkDoseId"))
+    card = nutrition.remember_new_card(data, meal)
+    nutrition.version_targets(data, previous)
+    if preference is not None:
+        was_saved = target_for(previous, "preference", card["_cardId"])
+        if was_saved and (card["_cardId"] != preference.get("targetId") or card["_foodVersion"] != preference.get("version")):
+            return 409, {"error": "Карточка уже существует или изменена. Выберите её из поиска и повторите сохранение."}
+        if not was_saved and ("targetId" in preference or "version" in preference):
+            return 409, {"error": CONFLICT}
+        proposal = preference_preview(card, preference.get("changes"), preference["reason"])
+        proposal_id = body["operationId"]
+        if db.execute("SELECT 1 FROM food_proposal WHERE who=? AND id=?", (who, proposal_id)).fetchone():
+            return 409, {"error": "ID предложения уже использован."}
+        store_proposal(db, who, proposal_id, signature, proposal)
     write_state(db, who, current["rev"] + 1, data)
     db.execute("INSERT INTO food_operation VALUES (?,?,?)", (who, body["operationId"], signature))
     db.commit()
     return 201, {"id": meal["id"]}
+
+
+CONFLICT = "Запись изменилась или была удалена. Сверьте данные и отправьте новое предложение."
+
+
+def target_for(data, kind, ident):
+    collection, key = ("meals", "id") if kind == "meal" else ("products", "_cardId")
+    return next((row for row in data.get(collection, []) if isinstance(row, dict) and row.get(key) == ident), None)
+
+
+def matches_card(data, card):
+    def matches(other):
+        if card.get("code") and other.get("code"):
+            return card["code"] == other["code"]
+        return card["name"].strip().casefold() == str(other.get("name", "")).strip().casefold()
+    return any(isinstance(old, dict) and matches(old) for old in data.get("products", []))
+
+
+def apply_meal_change(data, target, updated):
+    nutrition.move_meal_links(data, target, updated)
+    data["meals"][data["meals"].index(target)] = updated
+
+
+def proposal_deltas(data, target, updated):
+    preview = deepcopy(data)
+    apply_meal_change(preview, target, updated)
+    changes = []
+    for day in sorted({target["date"][:10], updated["date"][:10]}):
+        before, after = (nutrition.daily_calculation("day", {"state": s, "day": day, "entity": "", "scale": []})
+                         for s in (data, preview))
+        changes.append({"day": day, "change": [b-a for a, b in zip(before["known"], after["known"])],
+                        "missingBefore": before["missing"], "missingAfter": after["missing"]})
+    return changes
+
+
+def same_day_changes(old, new):
+    for a, b in zip(old, new, strict=True):
+        if any(not math.isclose(x, y, abs_tol=1e-8) for x, y in zip(a["change"], b["change"])):
+            return False
+        for i in range(4):
+            if a["missingAfter"][i] - a["missingBefore"][i] != b["missingAfter"][i] - b["missingBefore"][i]:
+                return False
+    return True
+
+
+def preference_preview(target, change, reason, *, new_card=False):
+    nutrition.validate_preference(target, change)
+    before = nutrition.public_card(target)
+    if before.get("preferred") == change:
+        raise nutrition.BadPortion("Эта настройка уже сохранена.")
+    return {"kind": "preference", "targetId": before.get("id"), "version": before.get("version"),
+            "reason": reason.strip(), "changes": change, "before": None if new_card else before,
+            "after": {**before, "preferred": change}}
+
+
+def store_proposal(db, who, ident, signature, proposal):
+    proposal["createdAt"] = datetime.now().isoformat(timespec="seconds")
+    db.execute("INSERT INTO food_proposal VALUES (?,?,?,?,?)", (who, ident, signature, "pending", json.dumps(proposal)))
+
+
+def create_proposal(db, who, body):
+    if not isinstance(body, dict) or set(body) - {"kind", "operationId", "reason", "targetId", "version", "card", "changes"}:
+        raise nutrition.BadPortion("Недопустимые поля предложения.")
+    kind, ident, reason = (body.get(k) for k in ("kind", "operationId", "reason"))
+    try:
+        if not isinstance(ident, str) or str(UUID(ident)) != ident:
+            raise ValueError
+    except ValueError:
+        raise nutrition.BadPortion("Нужен UUID операции.") from None
+    if kind not in ("meal", "preference") or not nutrition.safe_text(reason, 500) or not reason.strip():
+        raise nutrition.BadPortion("Выберите вид изменения и укажите причину.")
+    target_id, change = body.get("targetId"), body.get("changes")
+    new_card = "card" in body
+    if new_card and (kind != "preference" or "targetId" in body or "version" in body):
+        raise nutrition.BadPortion("Новая карточка не может заменять существующую.")
+    if not new_card and (not nutrition.safe_text(target_id, 160) or not target_id or not nutrition.safe_text(body.get("version"), 64)):
+        raise nutrition.BadPortion("Заново выберите запись из дневника.")
+    db.execute("BEGIN IMMEDIATE")
+    sig = nutrition.operation_signature(body)
+    receipt = db.execute("SELECT signature FROM food_proposal WHERE who=? AND id=?", (who, ident)).fetchone()
+    if receipt:
+        return (200, {"id": ident}) if receipt[0] == sig else (409, {"error": "ID предложения уже использован."})
+    current = read_state(db, who)
+    data = current["data"]
+    target = nutrition.proposed_card(body["card"]) if new_card else target_for(data, kind, target_id)
+    if target is None:
+        return 404, {"error": CONFLICT}
+    if (new_card and matches_card(data, target)) or (not new_card and target["_foodVersion"] != body["version"]):
+        return 409, {"error": CONFLICT}
+    proposal = {"kind": kind, "targetId": target_id, "version": body.get("version"), "reason": reason.strip(), "changes": change}
+    if kind == "meal":
+        updated = nutrition.corrected_meal(target, change)
+        before, after = (nutrition.public_meal(row, 0) for row in (target, updated))
+        if before == after:
+            raise nutrition.BadPortion("Предложение совпадает с сохранённой записью.")
+        proposal.update(before=before, after=after, days=proposal_deltas(data, target, updated))
+    else:
+        proposal = preference_preview(target, change, reason, new_card=new_card)
+    store_proposal(db, who, ident, sig, proposal)
+    write_state(db, who, current["rev"] + 1, data)
+    db.commit()
+    return 201, {"id": ident}
+
+
+def decide_proposal(db, who, body):
+    if not isinstance(body, dict) or set(body) != {"id", "decision"} or body["decision"] not in ("approve", "reject") or not isinstance(body["id"], str):
+        raise nutrition.BadPortion("Выберите предложение и действие.")
+    ident = body["id"]
+    status = "approved" if body["decision"] == "approve" else "rejected"
+    db.execute("BEGIN IMMEDIATE")
+    row = db.execute("SELECT status, body FROM food_proposal WHERE who=? AND id=?", (who, ident)).fetchone()
+    if not row:
+        return 404, {"error": "Предложение не найдено."}
+    receipt = {"id": ident, "status": status}
+    if row[0] != "pending":
+        return (200, receipt) if row[0] == status else (409, {"error": "По предложению уже принято решение."})
+    proposal = json.loads(row[1])
+    current = read_state(db, who)
+    data = current["data"]
+    if status == "approved":
+        previous = deepcopy(data)
+        target = target_for(data, proposal["kind"], proposal["targetId"]) if proposal["targetId"] else None
+        if proposal["targetId"]:
+            if target is None or target["_foodVersion"] != proposal["version"]:
+                return 409, {"error": CONFLICT}
+            if proposal["kind"] == "meal":
+                updated = nutrition.corrected_meal(target, proposal["changes"])
+                days = proposal_deltas(data, target, updated)
+                if not same_day_changes(proposal["days"], days):
+                    return 409, {"error": CONFLICT}
+                proposal["days"] = days
+                apply_meal_change(data, target, updated)
+            else:
+                target["preferred"] = proposal["changes"]
+        else:
+            if matches_card(data, proposal["after"]):
+                return 409, {"error": CONFLICT}
+            data.setdefault("products", []).insert(0, dict(proposal["after"]))
+        nutrition.version_targets(data, previous)
+    proposal["decidedAt"] = datetime.now().isoformat(timespec="seconds")
+    db.execute("UPDATE food_proposal SET status=?,body=? WHERE who=? AND id=?", (status, json.dumps(proposal), who, ident))
+    write_state(db, who, current["rev"] + 1, data)
+    db.commit()
+    return 200, receipt
 
 
 def profile_scale_rows(settings, who):
@@ -212,19 +429,9 @@ class Handler(BaseHTTPRequestHandler):
         if query and (parts != ["nutrition", "cards"] or set(query) - {"q"}):
             return self.reply(400, {})
         if self.command == "POST":
-            if parts != ["nutrition", "meals"]:
+            if parts not in (["nutrition", "meals"], ["nutrition", "proposals"]):
                 return self.reply(405, {})
-            if self.headers.get("Content-Type") != "application/json":
-                return self.reply(415, {})
-            size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 8192:
-                return self.reply(413, {})
-            try:
-                body = json.loads(self.rfile.read(size))
-                with closing(open_diary()) as db:
-                    return self.reply(*append_meal(db, who, body))
-            except (nutrition.BadPortion, json.JSONDecodeError, UnicodeDecodeError) as exc:
-                return self.reply(400, {"error": str(exc) if isinstance(exc, nutrition.BadPortion) else "Некорректная запись."})
+            return self.food_post(who, append_meal if parts[1] == "meals" else create_proposal)
         if parts == ["nutrition", "context"]:
             now = datetime.now().astimezone()
             return self.reply(200, {"today": now.date().isoformat(), "zone": now.tzname()})
@@ -239,9 +446,14 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[1] == "meals":
             ident = unquote(parts[2])
             for i, item in nutrition.meals_in(state):
-                if (item.get("id") or f"legacy-{i}-{item.get('date', '')}") == ident:
+                if item.get("id") == ident:
                     return self.reply(200, nutrition.public_meal(item, i))
             return self.reply(404, {})
+        if len(parts) == 3 and parts[1] == "protein-doses":
+            day = parts[2]
+            if not nutrition.valid_day(day):
+                return self.reply(400, {})
+            return self.reply(200, [candidate for _, candidate in nutrition.available_protein_doses(state, day)])
         if len(parts) == 3 and parts[1] == "days":
             day = parts[2]
             if not nutrition.valid_day(day):
@@ -249,21 +461,45 @@ class Handler(BaseHTTPRequestHandler):
             entity, _ = measurements.scale_binding(settings, who)
             result = nutrition.daily_calculation("day", {"state": state, "day": day, "entity": entity,
                                                        "scale": profile_scale_rows(settings, who)})
-            result["meals"] = sorted((nutrition.public_meal(m, i) for i, m in nutrition.meals_in(state)
-                                      if str(m.get("date", ""))[:10] == day), key=lambda m: m["date"])
+            rows = [(i,m) for i,m in nutrition.meals_in(state) if str(m.get("date", ""))[:10] == day]
+            totals = nutrition.daily_calculation("mealTotals", [m for _,m in rows]) if rows else []
+            result["meals"] = sorted((nutrition.public_meal(m, i, nut) for (i,m),nut in zip(rows, totals)),
+                                     key=lambda m: m["date"])
             return self.reply(200, result)
         return self.reply(404, {})
+
+    def food_post(self, who, operation):
+        if self.headers.get("Content-Type") != "application/json":
+            return self.reply(415, {})
+        size = int(self.headers.get("Content-Length", "0"))
+        if not 0 < size <= 8192:
+            return self.reply(413, {})
+        try:
+            body = json.loads(self.rfile.read(size))
+            with closing(open_diary()) as db:
+                return self.reply(*operation(db, who, body))
+        except (nutrition.BadPortion, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return self.reply(400, {"error": str(exc) if isinstance(exc, nutrition.BadPortion) else "Некорректная запись."})
 
     def handle_request(self):
         if self.client_address[0] not in ("172.30.32.2", "127.0.0.1"):
             return self.reply(403, {})
         url = urlsplit(self.path)
         who = url.path.split("/")[-1]
-        if url.path in ("/", "/profiles", "/food") or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/nutrition/")):
+        if url.path in ("/", "/profiles", "/food") or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/nutrition/", "/proposals/")):
             settings = options()
             user_id = self.headers.get("X-Remote-User-Id") if self.client_address[0] == "172.30.32.2" else None
             allowed = allowed_profiles(settings, user_id)
             assistant = assistant_profile(settings, user_id)
+            if url.path.startswith("/proposals/"):
+                if who not in allowed or not user_id or settings.get(who + "_user") != user_id or url.path != "/proposals/" + who:
+                    return self.reply(403, {})
+                if self.command == "POST":
+                    return self.food_post(who, decide_proposal)
+                with closing(open_diary()) as db:
+                    rows = db.execute("""SELECT id,status,body FROM food_proposal WHERE who=?
+                                      ORDER BY (status='pending') DESC,rowid DESC""", (who,))
+                    return self.reply(200, [{**json.loads(body), "id": ident, "status": status} for ident, status, body in rows])
             if url.path.startswith("/nutrition/"):
                 if not assistant:
                     return self.reply(403, {})
@@ -274,7 +510,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
             return self.reply(200, [{"id": p, "name": profile_name(settings, p),
-                                     "weightEntity": settings.get(p+"_weight") or "",
+                                     "reviewProposals": settings.get(p+"_user") == user_id,
+                                     "weightEntity": settings.get(p+"_weight") or "", "timeZone": diary_zone(),
                                      **({"scaleConflict": True} if measurements.scale_binding(settings, p)[1] else {})}
                                     for p in PROFILES
                                     if p in allowed])
@@ -305,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(400, {})
                 rev = save(db, who, body)
                 db.commit()
-                return self.reply(200 if rev else 409, {"rev": rev})
+                return self.reply(200 if rev else 409, {"rev": rev, "diaryStartedOn": body["data"].get("diaryStartedOn")})
         if self.command != "GET":
             return self.reply(405, {})
         if url.path == "/weight/" + who and who in ("person1", "person2"):

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone, timedelta
 import shutil
 import measurements
+import sqlite3
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
@@ -54,7 +55,23 @@ class Sport(unittest.TestCase):
         self.assertEqual(self.profile("person1", body)["rev"], 1)
         self.assertEqual(self.call("/profile/person1", body)[0], 409)
         self.assertEqual(self.profile("person2")["data"], {})
-        self.assertEqual(self.profile("person1")["data"], body["data"])
+        self.assertEqual(self.profile("person1")["data"]["workouts"], body["data"]["workouts"])
+
+    def test_existing_profile_without_dated_events_starts_at_upgrade_once(self):
+        with closing(server.open_diary()) as db:
+            db.execute("INSERT INTO profile VALUES (?,?,?)", ("person1", 5, '{"profile":{"height":180}}'))
+            db.commit()
+        migrated = self.profile("person1")
+        self.assertEqual(migrated["data"].get("diaryStartedOn"), datetime.now().date().isoformat())
+        self.assertEqual(self.profile("person1"), migrated)
+        self.assertEqual(self.profile("person2"), {"rev": 0, "data": {}})
+
+    def test_boundary_survives_deleting_first_historical_event(self):
+        start = "2026-02-01"
+        self.profile("person1", {"rev": 0, "data": {"meals": [{"date": start + "T12:00"}]}})
+        self.profile("person1", {"rev": 1, "data": {"meals": []}})
+        self.assertEqual(self.profile("person1")["data"].get("diaryStartedOn"), start)
+        self.assertEqual(self.profile("person2")["data"], {})
 
     def test_web_entry_points(self):
         for path in ["/", "/app.js", "/logic.js", "/catalog.js", "/foods.js", "/reports.js", "/report-view.js", "/style.css"]:
@@ -143,6 +160,58 @@ class Sport(unittest.TestCase):
         for invalid in ("person.someone", "Весы", "", None):
             self.assertEqual(measurements.weight_entity(invalid), "")
 
+    def test_legacy_scale_history_and_attribute_changes_after_upgrade(self):
+        path = server.DATA / "sport.db"
+        entity = "sensor.scale"
+        times = [datetime(2026, 6, day, 10, tzinfo=timezone.utc) for day in (1, 2, 3, 4, 5)]
+        first, manual, renamed, repeated, now = (t.isoformat() for t in times)
+        # Original 0.6.0 schema, including a cursor past the two historical states.
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("CREATE TABLE scale(who TEXT, entity TEXT, date TEXT, kg REAL NOT NULL, PRIMARY KEY(who,entity,date))")
+            db.execute("CREATE TABLE scale_cursor(who TEXT, entity TEXT, date TEXT, PRIMARY KEY(who,entity))")
+            db.executemany("INSERT INTO scale VALUES(?,?,?,?)", [
+                ("person1", entity, first, 80), ("person1", entity, renamed, 80),
+                ("person2", "sensor.other", manual, 60)])
+            db.execute("INSERT INTO scale_cursor VALUES(?,?,?)", ("person1", entity, now))
+        self.profile("person1", {"rev": 0, "data": {"weights": [{"source": "manual", "date": manual, "kg": 82}]}})
+        old = {"entity_id": entity, "state": "80", "last_changed": first, "last_updated": first,
+               "attributes": {"unit_of_measurement": "kg"}}
+        rename = {**old, "last_updated": renamed, "attributes": {**old["attributes"], "friendly_name": "Scale"}}
+        again = {**rename, "last_updated": now, "attributes": {**rename["attributes"], "measured_at": repeated}}
+        # Current value and Recorder records can arrive in reverse order and more than once.
+        def core(route):
+            return again if route.startswith("states/") else [[again, rename, old, rename]]
+        for _ in range(2):
+            measurements.collect(path, "person1", entity, core, times[-1])
+        saved = measurements.readings(path, "person1")
+        self.assertEqual([(r["date"], r["kg"]) for r in saved], [(first, 80), (repeated, 80)])
+        self.assertEqual([r["timeBasis"] for r in saved], ["last_changed", "measured_at"])
+        self.assertEqual(measurements.readings(path, "person2")[0]["timeBasis"], "legacy")
+        self.assertEqual(self.profile("person1")["data"]["weights"][0]["kg"], 82)
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(db.execute("SELECT kg FROM scale WHERE date=?", (renamed,)).fetchone(), (80,))
+
+    def test_same_weight_at_new_state_change_is_kept_but_attribute_only_replay_is_not(self):
+        entity = "sensor.mass"
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        first, second = [(now-timedelta(days=d)).isoformat() for d in (100, 1)]
+        original = {"entity_id": entity, "state": "80", "last_changed": first, "last_updated": first,
+                    "attributes": {"unit_of_measurement": "kg"}}
+        repeat = {**original, "last_changed": second, "last_updated": second}
+        renamed = {**repeat, "last_updated": now.isoformat(), "last_reported": now.isoformat(),
+                   "attributes": {**repeat["attributes"], "friendly_name": "New"}}
+        path = server.DATA / "sport.db"
+        measurements.collect(path, "person1", entity, lambda r: renamed if r.startswith("states/") else [[repeat, original]], now)
+        self.assertEqual([r["date"] for r in measurements.readings(path, "person1")], [first, second])
+        # Changing the unit without a new weight must not rewrite the saved
+        # mass at its original timestamp, even when Recorder is not polled.
+        metadata = {**renamed, "attributes": {"unit_of_measurement": "g"}}
+        measurements.collect(path, "person1", entity, lambda r: metadata, now+timedelta(minutes=1))
+        self.assertEqual(measurements.readings(path, "person1")[-1]["kg"], 80)
+        settings = {**self.settings, "person1_weight": entity}
+        with patch.object(server, "options", return_value=settings), patch.object(server, "core", return_value=metadata):
+            self.assertEqual(json.loads(self.call("/weight/person1")[1])["kg"], 80)
+
     def test_first_open_reads_configured_scale_before_poll_and_retains_it(self):
         settings = {**self.settings, "person2_weight": "input_number.weight_b"}
         sample = {"last_updated":"2020-01-02T10:00:00Z","state":"60","attributes":{"unit_of_measurement":"kg"}}
@@ -169,8 +238,8 @@ class Sport(unittest.TestCase):
                         self.assertEqual(self.call(f"/{route}/{who}", user=user)[0], expected)
                     data = {"rev": 1 if user == "u2" else 0, "data": {"marker": user}}
                     self.assertEqual(self.call("/profile/" + who, data, user=user)[0], expected)
-        self.assertEqual(self.profile("person1")["data"], {"marker": "u1"})
-        self.assertEqual(self.profile("person2")["data"], {"marker": "u2"})
+        self.assertEqual(self.profile("person1")["data"]["marker"], "u1")
+        self.assertEqual(self.profile("person2")["data"]["marker"], "u2")
 
     def test_profile_access_after_upgrade_or_misconfiguration(self):
         def listed(settings, user):
@@ -269,7 +338,7 @@ class Sport(unittest.TestCase):
                         {"rev":1,"data":{"profile":{"exerciseNotes":{"exercise:жим":"x"*501}}}}):
             with self.subTest(invalid=invalid):
                 self.assertEqual(self.call("/profile/person1",invalid)[0],400)
-        self.assertEqual(self.profile("person1"), {"rev":1,"data":initial})
+        self.assertEqual(self.profile("person1"), {"rev":1,"data":{**initial,"diaryStartedOn":datetime.now().date().isoformat()}})
 
     def test_live_http_concurrent_writes_and_restart(self):
         class TestIngress(server.Handler):

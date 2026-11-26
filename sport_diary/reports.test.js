@@ -15,13 +15,13 @@ test("Calendar periods use Monday, cutoff, leap day and calendar years",()=>{
   assert.equal(run(s,"2026-03-01","month").workouts,1);
   assert.equal(diaryReport(s,[],"","2026-03-04","day","2026-03-01").elapsed,0);
 });
-test("Balance counts only complete known meals, applies dated expenditure once and keeps deficit separate",()=>{
+test("Balance counts known calories without manual flags, applies dated expenditure once and keeps deficit separate",()=>{
   const s=base();
   for(const [day,kcal] of [["01",1800],["02",2200],["03",null],["04",0],["05",1000]]){const d="2026-02-"+day;s.meals.push(meal(d,kcal));s.foodComplete[d]=day!=="05"}
   s.foodComplete["2026-02-06"]=true;s.workouts.push(workout("2026-02-02"));s.energyRules["2026-02-04"]={mode:"off"};
   const r=run(s,"2026-02-07","month");
   assert.equal(r.balances.length,2);assert.equal(r.deficit,200);assert.equal(r.surplus,200);assert.equal(r.balance,0);
-  assert.equal(r.foodDays,4);assert.equal(r.unknown,1);
+  assert.equal(r.foodDays,5);assert.equal(r.unknown,1);
   assert.equal(run(s,"2026-02-07","day").balance,null);
 });
 test("Estimates require effective profile settings and a weight known on that date",()=>{
@@ -45,17 +45,17 @@ test("Weekly rewards remain personal and reversible after edits or duplicate ent
   for(let i=23;i<=29;i++){const day="2026-11-"+i;s.meals.push(meal(day,1500));s.foodComplete[day]=true;s.restLog[day]=true}
   s.workouts=[workout("2026-11-24"),workout("2026-11-26")];
   const r=run(s,end);
-  assert.equal(r.week.joint,true);assert.equal(r.week.repeat,true);assert.equal(r.week.activity,7);
+  assert.equal(r.week.joint,true);assert.equal(r.week.repeat,true);assert.equal(r.week.activity,6);
   const scheduled={...s,restLog:{}};assert.equal(run(scheduled,end).week.joint,true);
   assert.equal(r.achievements.length,4);assert.equal(r.periodPoints,r.points);
   s.meals.push(meal(end,100));s.workouts.push(workout("2026-11-24"));
   assert.equal(run(s,end).points,r.points);
-  s.foodComplete[end]=false;assert.equal(run(s,end).week.joint,false);assert.ok(run(s,end).points<r.points);
+  s.foodComplete[end]=false;assert.equal(run(s,end).points,r.points);s.meals=s.meals.filter(m=>!m.date.startsWith(end));assert.equal(run(s,end).week.joint,false);assert.ok(run(s,end).points<r.points);
   assert.equal(run(base(),end).points,0);
   assert.ok(run(s,"2026-11-23").points<r.points);
 });
 
-test("Automatic expense is available on rest days, uses the last known weight and needs complete meals for balance",()=>{
+test("Automatic expense is available on rest days, uses the last known weight and the food recorded so far",()=>{
   const s=base(),day="2026-02-04";
   delete s.energyRules;
   s.profile={height:180,birth:"2000-03-01",sex:"Мужской"};
@@ -104,6 +104,54 @@ test("История рабочих подходов разделена по с�
  s.workouts=[a,b];const r=run(s,day,"day");
  assert.equal(r.sets,3);assert.deepEqual(r.exerciseNames,["Жим","Жим · Одна гантель"]);
  assert.equal(r.rows[0].exercises.get("Жим · Одна гантель").sets,1);
+});
+
+test("Минуты занятия относятся к обеим датам, число визитов — к дате старта",()=>{
+  for(const [start,end,period] of [["2026-04-05","2026-04-06","week"],
+    ["2026-04-30","2026-05-01","month"],["2026-12-31","2027-01-01","year"]]){
+    const s=base(),w={...workout(start),date:start+"T23:30",end:end+"T00:30"};
+    s.workouts=[w];
+    assert.deepEqual([run(s,start,"day").minutes,run(s,start,"day").workouts],[30,1]);
+    assert.deepEqual([run(s,end,period).minutes,run(s,end,period).workouts],[30,0]);
+    assert.equal(run(s,end,"day").rows[0].sessions.length,1);
+    w.end=end+"T00:00";
+    assert.equal(run(s,end,"day").rows[0].sessions.length,0);
+  }
+});
+
+test("Архивный last_updated сохраняет старый вес, но не замещает подтверждённое взвешивание",()=>{
+  const s=base(),entity="sensor.mass";
+  const scale=[{date:"2026-04-01T10:00",entity,kg:79,source:"ha",timeBasis:"legacy"},
+    {date:"2026-04-04T10:00",entity,kg:80,source:"ha",timeBasis:"legacy"}];
+  s.weights=[{date:"2026-04-02T10:00",kg:82,source:"manual"}];
+  assert.equal(run(s,"2026-04-01","day",scale).latest.kg,79);
+  assert.equal(run(s,"2026-04-05","day",scale).latest.kg,82);
+  assert.equal(require("./web/logic").measurementAt(s,"2026-04-05",scale,entity).kg,82);
+  scale.push({date:"2026-04-05T10:00",entity,kg:80,source:"ha",timeBasis:"last_changed"});
+  assert.equal(run(s,"2026-04-05","day",scale).latest.kg,80);
+});
+
+test("Начало и полночь тренировки определяются в зоне дневника по сохранённым моментам",()=>{
+  const {setDiaryZone,workoutWeightAtStart,workoutEnergy}=require("./web/logic");
+  setDiaryZone("Europe/Moscow");
+  try{
+    const s=base(),w={...workout("2026-12-31"),date:"2026-12-31T23:30",end:"2027-01-01T00:30",
+      startedAt:"2026-12-31T20:30:00Z",endedAt:"2026-12-31T21:30:00Z"};
+    s.workouts=[w];s.weights=[{date:"2026-12-31T23:25",kg:80,source:"manual"},
+      {date:"2026-12-31T21:05:00Z",kg:90,source:"manual"}];
+    assert.equal(run(s,"2027-01-01","year").minutes,30);
+    assert.equal(run(s,"2026-12-31","day").latest.kg,80);
+    assert.equal(run(s,"2027-01-01","day").latest.kg,90);
+    assert.equal(workoutWeightAtStart(w,s),80);
+    w.kg=90;w.weightSample=s.weights[1]; // Invalid imported snapshot taken during the session.
+    assert.equal(workoutWeightAtStart(w,s),80);
+    w.kg=79;w.weightSample={date:"2026-12-30T12:00:00Z",kg:79,source:"ha",timeBasis:"legacy"};
+    assert.equal(workoutWeightAtStart(w,s),80);
+    w.kg=70;w.weightSample=null;
+    assert.equal(Math.round(workoutEnergy(w,80).gross),257); // Recorded snapshot survives a later lookup.
+    delete w.kg;
+    assert.equal(workoutWeightAtStart(w,s,null),80); // Manual history with an unavailable scale.
+  }finally{setDiaryZone(Intl.DateTimeFormat().resolvedOptions().timeZone)}
 });
 
 const {nutritionForDay,supplementStatus}=require("./web/reports");
@@ -166,7 +214,7 @@ test("Питание считает зафиксированные КБЖУ и �
  const get=()=>nutritionForDay(s,dayA);
  assert.deepEqual(get().totals,[null,57,null,null]);assert.deepEqual(get().known,[560,57,19,55]);
  assert.deepEqual(get().missing,[1,0,1,1]);assert.equal(get().count,2);
- assert.equal(run(s,dayA,"day").balance,null);
+ assert.equal(run(s,dayA,"day").balance,-1440);assert.equal(run(s,dayA,"day").partialBalances.length,1);
  s.supps[0].mealId="later";assert.equal(get().totals[1],57);
  s.supps[0].mealId="plate";assert.deepEqual(get().totals,[560,24,19,55]);assert.equal(get().count,1);
  assert.equal(get().supplements[0].linked,true);assert.equal(run(s,dayA,"day").balance,-1440);
@@ -187,4 +235,44 @@ test("Отчёты разделяют порции, белок из добавк
  s.supps.push(dose("Протеин",dayB));s.supps.push(dose("Креатин",dayB));
  const r=run(s,dayB,"day");assert.equal(r.doses.proteinUnknown,1);assert.equal(r.doses.creatineUnknown,1);
  assert.equal(r.nutrition.totals[1],null);assert.equal(r.nutrition.known[1],56);
+});
+
+test("Баланс известной части, перенос и удаление еды пересчитывают период",()=>{
+ const s=base(),a="2026-02-02",b="2026-02-03",end="2026-02-04";
+ s.energyRules[a]={mode:"manual",kcal:2150};
+ s.meals=[meal(a,500),meal(a,null),meal(b,2200)];
+ const report=()=>run(s,end),first=report();
+ assert.equal(first.rows[0].balance,-1650);assert.equal(first.deficit,0);assert.equal(first.surplus,50);
+ assert.equal(first.partialBalances[0].balance,-1650);
+ s.meals[0].date=b+"T07:00";assert.equal(report().rows[0].balance,null);assert.equal(report().surplus,550);
+ s.meals.shift();s.meals.shift();assert.equal(report().foodDays,1);assert.equal(report().rows[0].maintenance,2150);
+ const without=run({...s,energyRules:{}},end);assert.equal(without.balance,null);assert.equal(without.kcal,2200);
+});
+test("Отдых только с начала профиля, перенос занятия через неделю и пересчёт баллов",()=>{
+ const s=base(),last="2026-03-03",before="2026-02-28",sun="2026-03-01",mon="2026-03-02";
+ s.diaryStartedOn=sun;s.restLog[before]=true;
+ const day=d=>diaryReport(s,[],"",d,"day",last);
+ assert.equal(day(before).points,0);assert.equal(day(before).rows[0].trainingStatus,"Отдых");
+ assert.equal(day(last).rows[0].trainingStatus,"Тренировки пока нет");assert.equal(day(last).points,4);
+ s.workoutDrafts={open:{date:sun+"T10:00"}};
+ assert.equal(day(sun).rows[0].trainingStatus,"В процессе");assert.equal(day(last).points,2);
+ delete s.workoutDrafts.open;s.workouts=[{...workout(sun),id:"finished",date:sun+"T23:30",end:mon+"T00:30"}];
+ assert.equal(day(mon).rows[0].trainingStatus,"Тренировка");assert.equal(day(mon).periodPoints,0);
+ assert.equal(day(last).points,13);
+ s.workouts=[{...workout(mon),id:"finished"}];assert.equal(day(sun).periodPoints,2);assert.equal(day(mon).points,15);
+ s.workouts=[];assert.equal(day(last).points,4);assert.equal(run(base(),last).points,0);
+});
+test("Часовой пояс дневника определяет местную дату и момент начала",()=>{
+ const {diaryTime,diaryInstant}=require("./web/logic");
+ assert.equal(typeof diaryTime,"function");
+ assert.equal(diaryTime(new Date("2026-01-01T21:05:00Z"),"Europe/Moscow"),"2026-01-02T00:05");
+ assert.equal(diaryInstant("2026-01-02T00:05","Europe/Moscow").toISOString(),"2026-01-01T21:05:00.000Z");
+});
+
+test("Серия дней с питанием пересчитывается при удалении внутри истории и остаётся открытой сегодня",()=>{
+ const s=base(),today="2026-03-07";
+ s.meals=["2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06"].map(d=>meal(d,100));
+ assert.deepEqual(run(s,today).foodStreak,{current:5,longest:5});
+ s.meals.splice(2,1);assert.deepEqual(run(s,today).foodStreak,{current:2,longest:2});
+ assert.deepEqual(run(s,"2026-03-08").foodStreak,{current:0,longest:2});
 });

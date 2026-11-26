@@ -10,6 +10,7 @@ async function exercisePage(page, mobile) {
   const activate = locator => mobile ? locator.tap() : locator.click();
   const today = page.locator(".calDay.chosen");
   await today.waitFor();
+  assert.match(await today.getAttribute("aria-label"), /Тренировки пока нет/);
   const nav = page.getByRole("navigation", {name:"Разделы дневника"});
   assert.equal(await nav.getByRole("button").count(), 4);
 
@@ -21,6 +22,7 @@ async function exercisePage(page, mobile) {
   const dateButton = page.locator(".calDay:not(.outside)").nth(12);
   const action = await dateButton.getAttribute("data-action");
   const day = action.slice("date-".length);
+  assert.match(await dateButton.getAttribute("aria-label"), /Отдых/);
   await activate(dateButton);
   assert.equal(await food.getAttribute("aria-current"), "page");
   assert.equal((await page.locator("#mealdate").inputValue()).slice(0, 10), day);
@@ -35,6 +37,7 @@ async function exercisePage(page, mobile) {
   await activate(page.locator('[data-action="meal"]'));
   const entry = page.locator("#entries").getByText(/Творог 5%.*234 ккал/);
   await entry.waitFor();
+  assert.equal(await page.locator('[data-action="food-complete"]').count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
 
   await page.reload();
@@ -42,7 +45,9 @@ async function exercisePage(page, mobile) {
   await activate(food);
   await activate(page.locator('[data-action="show-calendar"]'));
   await activate(page.locator('[data-action="cal-prev"]'));
-  await activate(page.locator('[data-action="' + action + '"]'));
+  const recordedDay = page.locator('[data-action="' + action + '"]');
+  assert.match(await recordedDay.getAttribute("aria-label"), /Отдых, есть запись еды/);
+  await activate(recordedDay);
   await entry.waitFor();
   assert.equal(await page.locator('#entries [data-action^="edit-meal-"]').count(), 1);
 }

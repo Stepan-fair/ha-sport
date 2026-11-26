@@ -1,3 +1,27 @@
+let diaryZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const diaryClocks=new Map();
+function setDiaryZone(zone){
+  if(!zone)return;
+  try{new Intl.DateTimeFormat("en",{timeZone:zone});diaryZone=zone}catch{/* Older clients keep their system zone. */}
+}
+function diaryTime(instant=new Date(),zone=diaryZone){
+  if(!diaryClocks.has(zone))diaryClocks.set(zone,new Intl.DateTimeFormat("sv-SE",{
+    timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}));
+  return diaryClocks.get(zone).format(instant).replace(" ","T");
+}
+function diaryInstant(value,zone=diaryZone){
+  if(typeof value!=="string"||/[zZ]$|[+-]\d\d:?\d\d$/.test(value))return new Date(value);
+  const wall=value.length===10?value+"T00:00":value;
+  const target=Date.parse(wall+"Z");
+  if(!Number.isFinite(target))return new Date(NaN);
+  let instant=new Date(target);
+  for(let i=0;i<3;i++){
+    const formatted=diaryTime(instant,zone);
+    if(formatted===wall.slice(0,16))return instant;
+    instant=new Date(instant.getTime()+Date.parse(wall.slice(0,16)+"Z")-Date.parse(formatted+"Z"));
+  }
+  return new Date(NaN);
+}
 const programs = [
   ["Жим ногами под 45°","Вертикальная тяга на верхнем блоке","Жим от груди горизонтальный в тренажёре","Сгибание ног сидя","Горизонтальная тяга на нижнем блоке"],
   ["Горизонтальная тяга на нижнем блоке","Жим ногами горизонтальный","Жим лёжа","Разгибание ног","Вертикальная тяга на верхнем блоке"]
@@ -32,20 +56,41 @@ function doseEntry(name,day,slot,clock,now){
  if(now&&day+"T"+(clock||periodStart[slot])>now)throw Error("Приём «"+name+"» ещё в будущем. Проверь день и период.");
  return {date:clock?day+"T"+clock:day,period:slot,names:[name]};
 }
+function validBodyWeight(kg){return Number.isFinite(kg)&&kg>0&&kg<700}
+function preferMeasurement(row,time,best,bestTime,entity){
+ if(!best)return true;
+ // 0.6.0 stored attribute-update times. They only provide a fallback until
+ // a reading with a known measurement time exists.
+ if((row.timeBasis==="legacy")!==(best.timeBasis==="legacy"))return row.timeBasis!=="legacy";
+ const priority=w=>entity&&w.source==="ha"&&w.entity===entity?2:w.source==="manual"?1:0;
+ return time>bestTime||time===bestTime&&priority(row)>=priority(best);
+}
 function measurementAt(s,date,scale=[],preferredEntity=""){
- const until=Date.parse(date);
+ const until=diaryInstant(date).getTime();
  let best=null,bestTime=-Infinity;
- const priority=row=>preferredEntity&&row?.source==="ha"&&row.entity===preferredEntity?2:row?.source==="manual"?1:0;
- for(const w of [...scale,...(s.weights||[])]){
-   const at=Date.parse(w.date);
-   const eligible=at>bestTime||at===bestTime&&priority(w)>=priority(best);
-   if(Number.isFinite(at)&&at<=until&&eligible&&Number.isFinite(w.kg)&&w.kg>0&&w.kg<700){
+ for(const w of [...(scale||[]),...(s.weights||[])]){
+   if(typeof w?.date!=="string")continue;
+   const at=diaryInstant(w.date).getTime();
+   if(Number.isFinite(at)&&at<=until&&validBodyWeight(w.kg)&&preferMeasurement(w,at,best,bestTime,preferredEntity)){
      best=w;bestTime=at;
    }
  }
  return best;
 }
 function atTime(s,date,scale=[]){return measurementAt(s,date,scale)?.kg}
+function savedWorkoutWeight(w){
+ const kg=Number(w.kg),start=w.startedAt||w.date,sample=w.weightSample;
+ return validBodyWeight(kg)&&(!sample?.date||diaryInstant(sample.date)<=diaryInstant(start))?kg:null;
+}
+function workoutWeightAtStart(w,state,scale,entity){
+ const saved=savedWorkoutWeight(w);
+ if(saved!=null&&w.weightSample?.timeBasis!=="legacy")return saved;
+ return measurementAt(state,w.startedAt||w.date,scale,entity)?.kg??saved;
+}
+function workoutInterval(w){
+ const start=diaryInstant(w.startedAt||w.date),end=diaryInstant(w.endedAt||w.end);
+ return {start,end,minutes:(end-start)/60000};
+}
 function completedBefore(workouts,date){
  const at=Date.parse(date);
  return workouts.filter(w=>!w.cancelled&&!w.canceled&&!["cancelled","canceled","aborted"].includes(w.status)&&Date.parse(w.endedAt||w.end||w.date)<=at&&Date.parse(w.date)<at)
@@ -249,8 +294,9 @@ function treadmillMet(c){
  return walking(6)+(speed-6)/2.1*(running(8.1)-walking(6));
 }
 function workoutEnergy(w,bodyKg){
- const kg=Number(w.kg)>0?Number(w.kg):Number(bodyKg);
- const duration=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
+ const saved=savedWorkoutWeight(w);
+ const kg=Number(w.weightSample?.timeBasis==="legacy"?bodyKg??saved:saved??bodyKg);
+ const duration=workoutInterval(w).minutes;
  const cardio=w.cardio||[],done=(w.exercises||[]).some(e=>(e.sets||[]).some(t=>t.done&&Number(t.reps)>0));
  const treadmillMinutes=cardio.reduce((sum,c)=>sum+Number(c.seconds)/60,0);
  if(!(duration>0)||!Number.isFinite(treadmillMinutes)||treadmillMinutes>duration||cardio.some(c=>!(Number(c.seconds)>0)))return {gross:null,minutes:0};
@@ -266,12 +312,12 @@ function workoutEnergy(w,bodyKg){
  }
  return {gross,minutes};
 }
-function total(w){
- const sets=w.exercises.flatMap(e=>e.sets).filter(t=>t.done);
- const minutes=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
- const consoleEntries=w.cardio.filter(c=>c.kcal!=null&&c.kcal!=="");
+function total(w,bodyKg){
+ const sets=(w.exercises||[]).flatMap(e=>e.sets||[]).filter(t=>t.done);
+ const minutes=workoutInterval(w).minutes;
+ const consoleEntries=(w.cardio||[]).filter(c=>c.kcal!=null&&c.kcal!=="");
  const consoleKcal=consoleEntries.reduce((sum,c)=>sum+Number(c.kcal),0);
- const energy=workoutEnergy(w,w.kg);
+ const energy=workoutEnergy(w,bodyKg);
  return {sets:sets.length,volume:sets.reduce((n,t)=>n+t.kg*t.reps,0),minutes:Math.round(minutes),
    estimated:energy.gross==null?null:Math.round(energy.gross),consoleKcal,consoleCount:consoleEntries.length,points:10+Math.min(10,sets.length)};
 }
@@ -306,6 +352,7 @@ function replaceRecordedDose(entries,index,name,replacement){
  if(!old||!old.names.some(n=>canonicalSupp(n)===kind))throw Error("Отметка уже изменилась. Обнови страницу.");
  const names=old.names.filter(n=>canonicalSupp(n)!==kind);
  const rest=names.length?[{...old,names}]:[];
+ if(rest.length&&kind==="Протеин")for(const key of ["mealId","powderPerServing","perServing","intakeSnapshot","powderTotal"])delete rest[0][key];
  if(replacement)rest.push(replacement);
  return [...entries.slice(0,index),...rest,...entries.slice(index+1)];
 }
@@ -338,4 +385,4 @@ function schedule(name,slot){
  if(label==="Протеин"&&slot!=="Отдых")return [trainingSlots[slot],"После зала, если белковой еды не хватает. Можно с другим приёмом пищи."];
  return [item[2],item[3]];
 }
-if(typeof module!=="undefined") module.exports={exerciseResultName,workoutEnergy,plan,buildWorkoutPlan,estimateWorkout,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry,recordedDose,replaceRecordedDose,addDoseEntries};
+if(typeof module!=="undefined") module.exports={diaryTime,diaryInstant,setDiaryZone,exerciseResultName,workoutEnergy,workoutWeightAtStart,workoutInterval,validBodyWeight,preferMeasurement,plan,buildWorkoutPlan,estimateWorkout,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry,recordedDose,replaceRecordedDose,addDoseEntries};
