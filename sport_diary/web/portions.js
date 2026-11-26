@@ -153,6 +153,10 @@ const SportPortions = (() => {
   function recordedFoodCount(meals){
     return meals.filter(meal=>Number(meal.amount)>0||Number(meal.portion?.count)>0).length;
   }
-  return {recordedFoodCount, number, nutrients, calculate, mealNutrients, describe, preferredText, sameProduct, setDoseLink, setMealTime, saveMeal, recent};
+  function nutritionBasisLabel(card){
+    const basis=card.basis==="piece"?"1 "+(card.pieceName?.trim()||"штуку"):"100 "+(card.unit==="мл"?"мл":"г");
+    return "КБЖУ продукта на "+basis;
+  }
+  return {nutritionBasisLabel, recordedFoodCount, number, nutrients, calculate, mealNutrients, describe, preferredText, sameProduct, setDoseLink, setMealTime, saveMeal, recent};
 })();
 if (typeof module !== "undefined") module.exports = SportPortions;

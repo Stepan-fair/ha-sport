@@ -133,7 +133,7 @@ const SportHealthView=(()=>{
       return listRow((kinds[r.type]||r.type)+" · "+duration(r.durationMinutes),info.join(" · "),
         actions(button("workout","Исправить",r.id),r.parentWorkoutId?"":button("link",gym?"Изменить связь":"Связать с занятием",r.id),r.manual&&r.imported?button("undo-workout","Отменить правку",r.id):"",button("delete-workout","Удалить",r.id)));
     }).join("");
-    return section("watch","Данные часов",d.workouts.length?"Записей за день · "+d.workouts.length:"Нет записей за день",rows+hiddenRows(c,"workout")+actions(button("workout","Внести тренировку часов"),button("import","Импортировать JSON")));
+    return section("watch","Внешние данные с Apple Watch",d.workouts.length?"Записей за день · "+d.workouts.length:"Нет записей за день",rows+hiddenRows(c,"workout")+actions(button("workout","Внести тренировку с Apple Watch"),button("import","Импортировать JSON")));
   }
   function mealPanel(c){
     const rows=(c.state.meals||[]).filter(m=>m.date?.startsWith(c.day));
@@ -263,7 +263,7 @@ const SportHealthView=(()=>{
       numeric("distanceKm","Дистанция, км",r.distanceKm,'step="any"')+
       '<div class="healthPair">'+numeric("avgPulse","Средний пульс, уд/мин",r.avgPulse,'step="any"')+numeric("maxPulse","Пиковый пульс, уд/мин",r.maxPulse,'step="any"')+'</div>'+
       field("source","Модель часов или источник","text",r.source==="manual"?"":r.source,'maxlength="120" placeholder="Вручную"');
-    return {title:id?"Исправить данные часов":"Тренировка по часам",body,setup(form){
+    return {title:id?"Исправить данные Apple Watch":"Тренировка с Apple Watch",body,setup(form){
       const sync=()=>{form.querySelector("[data-custom-type]").hidden=form.elements.type.value!=="custom"};
       form.elements.type.addEventListener("change",sync);sync();
     },
@@ -274,7 +274,7 @@ const SportHealthView=(()=>{
         if(r.eventId)row.eventId=r.eventId;
         if(r.sourceIdentifier&&r.source===row.source)row.source={name:row.source,identifier:r.sourceIdentifier};
         model(c).saveWorkout(s,row);
-        return "Данные часов сохранены. Связь с занятием можно выбрать в карточке за "+dayLabel(row.start)+".";
+        return "Данные Apple Watch сохранены. Связь с занятием можно выбрать в карточке за "+dayLabel(row.start)+".";
       })};
   }
   function linkEditor(c,id){
@@ -366,7 +366,7 @@ const SportHealthView=(()=>{
       "undo-sleep":[restorable(getSleep,"sleep"),"Восстановить исходную запись сна","Восстановить",s=>m.revertSleep(s,key)],
       "delete-daily":[getDaily,"Снять значение за день","Подтвердить",s=>m.removeDaily(s,c.day,key)],
       "undo-daily":[(ctx,k)=>ctx.state.health?.daily?.[c.day]?.[k],"Восстановить исходное показание","Восстановить",s=>m.revertDaily(s,c.day,key)],
-      "delete-workout":[getWorkout,"Удалить данные часов","Удалить",s=>m.removeWorkout(s,key)],
+      "delete-workout":[getWorkout,"Удалить данные Apple Watch","Удалить",s=>m.removeWorkout(s,key)],
       "undo-workout":[restorable(getWorkout,"workout"),"Восстановить исходную запись часов","Восстановить",s=>m.revertWorkout(s,key)]
     };
     if(!Object.hasOwn(targets,action))return null;

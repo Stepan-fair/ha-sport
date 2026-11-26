@@ -43,6 +43,22 @@ test("Помощник вводит КБЖУ на яйцо заново при �
   assert.equal(field("oil0").value, "900");
 });
 
+test("Подпись КБЖУ отделяет основание этикетки от количества съеденной порции",()=>{
+  const {field,change}=form();
+  const refresh=()=>field("assistant-form").dispatchEvent(new Event("input"));
+  field("name").value="Продукт";field("count").value="200";
+  refresh();
+  assert.equal(field("nutrition-basis").textContent,"КБЖУ продукта на 100 г");
+  assert.match(field("assistant-preview").textContent,/В съеденной порции · 314 ккал/);
+  field("unit").value="мл";refresh();
+  assert.equal(field("nutrition-basis").textContent,"КБЖУ продукта на 100 мл");
+  change("mode","piece");change("basis","piece");field("piece").value="яйцо";
+  field("count").value="4";
+  [70,6,5,0].forEach((v,i)=>field("nut"+i).value=String(v));refresh();
+  assert.equal(field("nutrition-basis").textContent,"КБЖУ продукта на 1 яйцо");
+  assert.match(field("assistant-preview").textContent,/В съеденной порции · 280 ккал · 24 г белка/);
+});
+
 test("Выбор йогурта очищает масло и пометки яичницы в предпросмотре и запросе", async () => {
   const day="2026-02-14", sent=[];
   const card={name:"Йогурт",unit:"г",nut:[60,3,2,6],preferred:{mode:"base",count:100}};

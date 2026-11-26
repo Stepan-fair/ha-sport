@@ -184,13 +184,14 @@
     return body;
   }
   function updatePreview() {
+    el("nutrition-basis").textContent = SportPortions.nutritionBasisLabel({basis:el("basis").value,unit:el("unit").value,pieceName:el("piece").value});
     const preview = el("assistant-preview");
     preview.textContent = "";
     if (!el("count").value) return;
     try {
       const body = payload();
       const {totals,fiberTotal} = SportPortions.calculate(body, body);
-      preview.textContent = "В порции · " + macros(totals)+(fiberTotal==null?"":" · клетчатка "+num.format(fiberTotal)+" г");
+      preview.textContent = "В съеденной порции · " + macros(totals)+(fiberTotal==null?"":" · клетчатка "+num.format(fiberTotal)+" г");
     } catch {
       // A partially entered label or quantity has no portion total yet.
     }
@@ -241,6 +242,7 @@
     correction = null;
     el("correction-form").reset();
     el("proposal-current").textContent = "";
+    el("proposal-basis-label").textContent = "КБЖУ на исходное основание";
   }
   function labelValues(id) {
     const values = el(id).value.trim().split(/\s+/).map(s => SportPortions.number(s, "КБЖУ", true));
@@ -300,6 +302,7 @@
     if (meal) {
       correction = meal; el("proposal-meal").value = meal.id;
       el("proposal-current").textContent = describe(meal);
+      el("proposal-basis-label").textContent = SportPortions.nutritionBasisLabel(meal);
     }
   });
   el("correction-form").addEventListener("submit", ev => sendProposal(ev, "send-correction", correctionBody));

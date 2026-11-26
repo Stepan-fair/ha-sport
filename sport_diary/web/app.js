@@ -607,8 +607,7 @@ reserve=t.total+extra<=timing.budget?btn("reserve-exercise","Добавить п
 const cardioActivities=["Дорожка","Спокойная ходьба","Велотренажёр","Эллипсоид","Другое"];
 function cardioBlock(i){
  const role=i?"Заминка":"Разминка",c=draft.cardio[i],proposal=draft.timing?.cardio[i];
- const planFields=proposal?'<label>В плане<select data-plan-cardio="'+i+'" data-plan-field="activity">'+options(cardioActivities,proposal.activity)+'</select></label>'+
-   field("plan-minutes-"+i,"План, мин · 0 для пропуска","number",proposal.minutes,'min="0" max="240" step="1" required data-plan-cardio="'+i+'" data-plan-field="minutes"'):"";
+ const planFields=proposal?'<p>В плане: '+esc(proposal.activity)+' · План '+esc(proposal.minutes)+' мин.</p>':"";
  const attrs=k=>'data-c="'+i+'" data-f="'+k+'"';
  const km=c.distanceKm??(c.distance!=null&&c.distance!==""?Number(c.distance)/1000:"");
  return card(role,planFields+'<h3>Фактический результат</h3><label>Вид активности<select '+attrs("activity")+'>'+options(cardioActivities,c.activity||"Дорожка")+'</select></label>'+
@@ -619,8 +618,8 @@ function cardioBlock(i){
 function workout(){
  if(!draft)return pendingPanel()+(Object.values(state.workoutDrafts||{}).some(m=>m.date.startsWith(selectedDay))?card("В процессе","<p>Черновик тренировки открыт на другом устройстве.</p>"):"")+state.workouts.filter(w=>w.date.startsWith(selectedDay)&&!queued().some(item=>item.workout.id===w.id)).map(w=>summary(w)).join("")+card("Новая тренировка",dt("start","Дата и время начала")+planOverview(buildWorkoutPlan(state,stamp()))+btn("start","Начать тренировку",true));
  return card("Тренировка",dt("start","Начало",draft.date)+'<small> Черновик на этом устройстве</small>'+planOverview(draft))+
- card("Состав тренировки",(draft.focusLabel?'<p>Акцент плана · '+esc(draft.focusLabel)+'</p>':'')+(draft.guidance?'<p>'+esc(draft.guidance)+'</p>':'')+progressMeter()+(draft.exercises.length?"":'<p class="muted">'+(state.profile.equipment.length?'В выбранное время целиком помещается только кардио. Можно сократить разминку или добавить силовое вручную.':'Выбери доступные упражнения в настройках профиля или добавь упражнение вручную.')+'</p>')+'<div class="sequence">'+draft.exercises.map((e,i)=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(exerciseLabel(e.name))+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(exerciseLabel(e.name))+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(exerciseLabel(e.name))+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
- cardioBlock(0)+draft.exercises.map((e,i)=>card(exerciseLabel(e.name),guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+plannedLine(e)+(e.advice?'<p>'+esc(e.advice)+'</p>':'')+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'">'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="0.1"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1"')+check("Готово",'data-k="done"',t.done)+check("Ещё 2 повтора в запасе",'data-k="easy"',t.easy)+check("Подводящий подход",'data-k="warmup"',t.warmup)+'</div>' ).join('')+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+cardioBlock(1)+
+ card("Состав тренировки",(draft.focusLabel?'<p>Акцент плана · '+esc(draft.focusLabel)+'</p>':'')+(draft.guidance?'<p>'+esc(draft.guidance)+'</p>':'')+progressMeter()+(draft.exercises.length?"":'<p class="muted">'+(state.profile.equipment.length?'В выбранное время целиком помещается только кардио. Можно добавить силовое упражнение вручную; оно может увеличить длительность занятия.':'Выбери доступные упражнения в настройках профиля или добавь упражнение вручную.')+'</p>')+'<div class="sequence">'+draft.exercises.map((e,i)=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(exerciseLabel(e.name))+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(exerciseLabel(e.name))+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(exerciseLabel(e.name))+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
+ cardioBlock(0)+draft.exercises.map((e,i)=>card(exerciseLabel(e.name),guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+plannedLine(e)+(e.advice?'<p>'+esc(e.advice)+'</p>':'')+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'">'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="0.1"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1"')+check("Готово",'data-k="done"',t.done)+check("Подводящий подход",'data-k="warmup"',t.warmup)+'</div>' ).join('')+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+cardioBlock(1)+
  card("Завершение",dt("end",selectedDay===local().slice(0,10)?"Окончание · оставь пустым, чтобы закончить сейчас":"Когда закончил тренировку",draft.end||"",selectedDay!==local().slice(0,10))+'<div class="actions">'+'<small id="finishHint">Отметь подход или заполни дорожку, чтобы завершить занятие.</small>'+btn("finish","Закончить и сохранить",true)+btn("cancel","Отменить тренировку")+'</div>');
 }
 function summary(w,pending=false){
@@ -637,9 +636,9 @@ function summary(w,pending=false){
  }
  const ready=w.exercises.filter(e=>{
    const sets=e.sets.filter(t=>!t.warmup);
-   return sets.length>=Math.max(1,e.plannedSets||0)&&sets.every(t=>t.done&&t.easy);
+   return qualifyingWeight({sets,planned:e.plannedSets||0},3)>0;
  }).map(e=>exerciseLabel(e.name));
- const feedback=ready.length?"С запасом выполнены все подходы: "+ready.join(", ")+".":"";
+ const feedback=ready.length?"По 12 повторов выполнены все рабочие подходы: "+ready.join(", ")+".":"";
  const missed=w.exercises.some(e=>e.sets.some(t=>!t.done)||e.sets.filter(t=>t.done&&!t.warmup).length<(e.plannedSets||0));
  const energy=t.estimated!=null?(kg?'≈ ':'')+t.estimated+' ккал за занятие':t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':kg?'Для этой активности введи фактические ккал с консоли, чтобы учесть расход.':'Для оценки калорий нужен вес на начало занятия.';
  const linked=SportHealth.linkedWorkout(state,w);
@@ -727,6 +726,7 @@ function updatePortionPreview(){
  if(tab!==2)return;
  const panel=$("portion-preview");
  if(!panel)return;
+ $("food-basis-label").textContent=SportPortions.nutritionBasisLabel({basis:val("food-basis"),unit:val("unit"),pieceName:val("piece-name")});
  $("unit").dataset.previousUnit=val("unit");
  $("card-options").hidden=$("one-off").checked;
  $("protein-portion").hidden=!val("product-kind");
@@ -737,7 +737,7 @@ function updatePortionPreview(){
    const card=readFoodCard(),portion=currentPortion(card);
    const quantity=SportPortions.describe(portion.portion.mode,portion.portion.count,card,portion.amount);
    const oil=portion.oil?"<p>Основа · "+showMacros(portion.baseTotals)+"</p><p>Масло · "+numberRu(portion.oil.grams)+" г · "+showMacros(portion.oil.nut.map(v=>v==null?null:v*portion.oil.grams/100))+"</p>":"";
-   panel.innerHTML="<p><strong>"+esc(quantity)+"</strong></p>"+oil+"<p>В порции · "+showMacros(portion.totals)+(portion.fiberTotal!=null?" · клетчатка "+numberRu(portion.fiberTotal)+" г":"")+"</p>";
+   panel.innerHTML="<p><strong>"+esc(quantity)+"</strong></p>"+oil+"<p>В съеденной порции · "+showMacros(portion.totals)+(portion.fiberTotal!=null?" · клетчатка "+numberRu(portion.fiberTotal)+" г":"")+"</p>";
  }catch(e){panel.textContent=e.message}
 }
 function selectFoodCard(item,repeat=false){
@@ -788,6 +788,7 @@ function mealForm(meal){
    foodSelect("unit","Единица на этикетке",{"г":"г","мл":"мл"},card.unit||"г")+
    '<p id="food-unit-note" class="muted" aria-live="polite" hidden></p>'+
    foodSelect("food-basis","Основание КБЖУ",{"100":"На 100 г / 100 мл",piece:"На одну штуку без добавленного масла"},card.basis||"100")+
+   '<p id="food-basis-label" aria-live="polite">'+esc(SportPortions.nutritionBasisLabel(card))+'</p>'+
    mealLabels.map((n,i)=>decimalField("nut"+i,n,card.nut?.[i])).join("")+
    decimalField("food-fiber","Клетчатка на выбранное основание, г (если известна)",card.fiber)+
    decimalField("size-serving","Размер порции в г/мл",sizes.serving)+decimalField("size-package","Размер упаковки в г/мл",sizes.package)+
@@ -1317,12 +1318,7 @@ document.addEventListener("input",ev=>{const x=ev.target;if(!draft||tab!==1)retu
    else c[x.dataset.f]=x.value;
  }
  if(x.dataset.rest!==undefined&&x.value!==""&&x.validity.valid)draft.exercises[x.dataset.rest].restSeconds=Number(x.value);
- if(x.dataset.planCardio!==undefined&&draft.timing){
-   const c=draft.timing.cardio[x.dataset.planCardio];
-   if(x.dataset.planField==="activity")c.activity=x.value;
-   else if(x.value!==""&&x.validity.valid)c.minutes=Number(x.value);
- }
- const changedBudget=x.dataset.planCardio!==undefined||x.dataset.rest!==undefined||["reps","warmup"].includes(x.dataset.k);
+ const changedBudget=x.dataset.rest!==undefined||["reps","warmup"].includes(x.dataset.k);
  if(draft.timing&&changedBudget&&$("workoutBudget"))$("workoutBudget").outerHTML=planOverview(draft);
  if((x.dataset.k==="done"||changedBudget)&&$("setMeter"))$("setMeter").outerHTML=progressMeter();
  if(x.id==="start"&&(x.value.startsWith(selectedDay)||canMoveDate("start")))draft.date=x.value;if(x.id==="end")draft.end=x.value;updateFinishButton();retain()});

@@ -179,7 +179,7 @@ test("Двойная прогрессия требует двух отдельн
  assert.deepEqual(next([a]).sets.map(t=>t.kg),[60,60,60,60]);
  assert.deepEqual(next([a,b]).sets.map(t=>[t.kg,t.reps]),Array(4).fill([62.5,10]));
  for(const mutate of [
-   e=>e.sets.pop(),e=>e.sets[1].reps=11,e=>e.sets[1].easy=false,
+   e=>e.sets.pop(),e=>e.sets[1].reps=11,
    e=>e.sets[2].kg=55,e=>e.sets[0].done=false,
    e=>e.sets[1].warmup=true
  ]){
@@ -196,6 +196,23 @@ test("Двойная прогрессия требует двух отдельн
  assert.equal(next([a,skipped,b]).sets[0].kg,60);
  for(const goal of ["Сила","Набор мышц","Общая форма","Снижение веса","Выносливость"]){
    assert.ok(next([],{...p,goal}).sets.every(t=>t.reps<=12));
+ }
+});
+
+test("Два занятия по 12 повышают вес без галочки запаса; старый запас не меняет факт",()=>{
+ const name="Жим ногами под 45°";
+ for(const workingSets of [3,4]){
+   const profile={...s.profile,equipment:[name],workingSets};
+   const workouts=["03","07"].map(day=>({date:"2026-03-"+day+"T12:00",exercises:[{
+     name,plannedSets:workingSets,sets:Array.from({length:workingSets},(_,i)=>({kg:60,reps:12,done:true,...(i===0?{easy:false}:{})}))
+   }]}));
+   const next=plan({profile,workouts},"2026-03-10T13:00")[0];
+   assert.deepEqual(next.sets.map(t=>[t.kg,t.reps]),Array(workingSets).fill([62.5,10]));
+   assert.doesNotMatch(next.advice,/с запасом/);
+   const latest=workouts[1].exercises[0];
+   latest.sets.forEach(t=>Object.assign(t,{kg:65,reps:10,easy:true}));
+   const manual=plan({profile,workouts},"2026-03-10T13:00")[0];
+   assert.deepEqual(manual.sets.map(t=>[t.kg,t.reps]),Array(workingSets).fill([65,10]));
  }
 });
 

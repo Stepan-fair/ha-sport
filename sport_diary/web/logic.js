@@ -249,7 +249,7 @@ function qualifyingWeight(record,required){
  if(!record)return 0;
  const sets=record.sets,kg=sets[0]?.kg;
  if(sets.length<Math.max(3,required,record.planned)||sets.length>4||!(kg>0))return 0;
- return sets.every(t=>t.done&&t.reps>=12&&t.easy&&t.kg===kg)?kg:0;
+ return sets.every(t=>t.done&&t.reps>=12&&t.kg===kg)?kg:0;
 }
 function exerciseFor(name,p,past,date){
  const loadUnit=p.loadUnits?.[noteKey(name)]||"";
@@ -266,17 +266,17 @@ function exerciseFor(name,p,past,date){
  const increase=pair&&!p.returning&&step>0&&step<=kg*0.1;
  const sets=Array.from({length:targetSets},(_,i)=>{
    const last=completed[Math.min(i,completed.length-1)];
-   const reps=increase?10:last?Math.min(12,Math.max(1,last.reps+(last.easy?1:0))):initial;
+   const reps=increase?10:last?Math.min(12,Math.max(1,last.reps)):initial;
    return {kg:increase?Math.round((kg+step)*1000)/1000:last?.kg||0,reps,done:false,easy:false};
  });
  let advice="Подбери комфортный рабочий вес и запиши результат.";
  if(previous){
-   if(increase)advice="Две тренировки по 12 с запасом. Предложен следующий шаг веса и 10 повторов.";
+   if(increase)advice="Две тренировки по 12 во всех рабочих подходах. Предложен следующий шаг веса и 10 повторов.";
    else if(p.returning)advice="Режим возвращения: вес можно уменьшить, автоматическая прибавка отключена.";
    else if(pair)advice="Критерий выполнен. Для прибавки нужен доступный шаг до 10% рабочего веса.";
    else if(completed.length<previous.planned||previous.sets.some(t=>!t.done))advice="В прошлый раз часть рабочих подходов осталась незавершённой. Можно снизить вес и повторить план в комфортном объёме.";
-   else if(kg)advice="Все рабочие подходы по 12 с запасом. Для прибавки повтори результат ещё раз.";
-   else advice="Сохраняй комфортный вес. Для прибавки нужны 3–4 полных рабочих подхода по 12 с запасом в двух занятиях подряд.";
+   else if(kg)advice="Все рабочие подходы по 12. Для прибавки повтори результат ещё раз.";
+   else advice="Сохраняй комфортный вес. Для прибавки нужны 3–4 полных рабочих подхода по 12 на одном весе в двух занятиях подряд.";
  }
  const prescription=sets.map(t=>({kg:t.kg,reps:t.reps}));
  return {name,sets,loadUnit,plannedSets:targetSets,prescription,advice,previous:completed.map(t=>t.kg+" × "+t.reps).join(", ")};

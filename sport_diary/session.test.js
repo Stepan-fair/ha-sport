@@ -111,10 +111,21 @@ test("Старт, изменение числа подходов, отмена �
  const initialCount=run("draft.exercises.length");
  const planInput={id:"plan-minutes-0",dataset:{planCardio:"0",planField:"minutes"},value:"0",validity:{valid:true},closest:()=>null,matches:()=>false};
  for(const fn of listeners.input)fn({target:planInput});
+ assert.equal(run("draft.timing.cardio[0].minutes"),15);
+ assert.match(run("cardioBlock(0)"),/В плане: Дорожка · План 15 мин\./);
+ assert.doesNotMatch(run("workout()"),/data-plan-cardio|data-k="easy"|Ещё 2 повтора в запасе/);
+ const savedExercises=run("draft.exercises");run("draft.exercises=[]");
+ assert.doesNotMatch(run("workout()"),/Можно сократить разминку/);
+ ctx.savedExercises=savedExercises;run("draft.exercises=savedExercises");
+ // Shorter actual rest intervals make room for the optional block; the cardio plan stays intact.
+ for(let i=0;i<initialCount;i++){
+   const restInput={id:"rest"+i,dataset:{rest:String(i)},value:"30",validity:{valid:true},closest:()=>null,matches:()=>false};
+   for(const fn of listeners.input)fn({target:restInput});
+ }
  await run('action("reserve-exercise")');
  assert.equal(run("draft.exercises.length"),initialCount+1);
  assert.equal(run("draft.exercises.at(-1).optional"),true);
- await run("load()");assert.equal(run("draft.timing.cardio[0].minutes"),0);
+ await run("load()");assert.equal(run("draft.timing.cardio[0].minutes"),15);
  assert.equal(run("draft.cardio.every(c=>!Object.keys(c).length)"),true);
  run('draft.exercises[0].sets.forEach(t=>t.done=true);draft.end="2026-01-06T10:55"');
  node("end").value="2026-01-06T10:55";await run('action("finish")');

@@ -21,7 +21,7 @@
         <label>Исправленное количество в единице записи<input id="proposal-count" type="number" min="0.000001" step="any"></label>
         <label>Исправленные дата и время<input id="proposal-date" type="datetime-local"></label>
         <details><summary>Исправить этикетку или масло</summary>
-          <label>КБЖУ на исходное основание, через пробел<input id="proposal-nut" placeholder="70 6 5 0"></label>
+          <label><span id="proposal-basis-label">КБЖУ на исходное основание</span>, через пробел<input id="proposal-nut" placeholder="70 6 5 0"></label>
           <label>Клетчатка на исходное основание, г<input id="proposal-fiber" type="number" min="0" step="any"></label>
           <label class="check"><input type="checkbox" id="clear-fiber">Убрать ошибочные сведения о клетчатке</label>
           <label>Приём пищи<input id="proposal-group" maxlength="80" list="meal-groups"></label>
@@ -47,7 +47,7 @@
       <datalist id="meal-groups"><option value="Завтрак"></option><option value="Обед"></option><option value="Ужин"></option><option value="Перекус"></option></datalist>
       <label>Вид продукта<select id="product-kind"><option value="">Обычная еда</option><option value="protein">Протеиновая добавка</option><option value="protein_mix">Блюдо или напиток с протеиновой добавкой</option></select></label>
       <div id="protein-fields" hidden>
-        <p>Общие КБЖУ укажите для всей порции. Здесь укажите вклад порошка, если он известен.</p>
+        <p>КБЖУ продукта введите ниже на 100 г/мл или одну штуку, согласно выбранному основанию. Здесь укажите вклад порошка во всей съеденной порции, если он известен.</p>
         <label>Саше в съеденной порции<input id="protein-servings" type="number" min="0.000001" step="any"></label>
         <label>Порошок в съеденной порции, г<input id="protein-powderGrams" type="number" min="0.000001" step="any"></label>
         <label id="protein-contribution" hidden>Белок из порошка в смешанном блюде, г<input id="protein-proteinGrams" type="number" min="0" step="any"></label>
@@ -62,6 +62,7 @@
       <label id="piece-label" hidden>Название штуки<input id="piece" maxlength="50" placeholder="Например, яйцо"></label>
       <label>КБЖУ указаны<select id="basis"><option value="100">На 100 г или 100 мл</option><option value="piece">На одну штуку</option></select></label>
       <label id="piece-size-label" hidden>Размер одной штуки в г/мл<input id="piece-size" type="number" step="any" min="0.000001"></label>
+      <p id="nutrition-basis" aria-live="polite">КБЖУ продукта на 100 г</p>
       <div>
         <label>Ккал<input id="nut0" type="number" min="0" step="any" required></label>
         <label>Белки, г<input id="nut1" type="number" min="0" step="any" required></label>
