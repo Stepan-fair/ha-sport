@@ -1,6 +1,7 @@
 """Build the HA installation archive and an offline interactive preview."""
 from pathlib import Path
 import json
+import re
 from zipfile import ZipFile, ZIP_DEFLATED
 from photos import CATALOG, PHOTO_SOURCE
 
@@ -35,11 +36,16 @@ def build():
     page = page.replace('<link rel="stylesheet" href="style.css">', "<style>" + (WEB / "style.css").read_text(encoding="utf8") + "</style>")
     page = page.replace('<section id="content"></section>', '<section id="content"></section><small>Демо на этом устройстве · без синхронизации с HA</small>')
     catalog = "const exerciseCatalog = " + json.dumps(CATALOG) + "; const exercisePhotoBase = " + json.dumps(PHOTO_SOURCE) + ";"
-    for name, source in [("catalog", catalog), ("logic", (WEB / "logic.js").read_text(encoding="utf8")), ("foods", (WEB / "foods.js").read_text(encoding="utf8")), ("reports",(WEB / "reports.js").read_text(encoding="utf8")), ("report-view",(WEB / "report-view.js").read_text(encoding="utf8")), ("app", js)]:
-        page = page.replace(f'<script src="{name}.js"></script>', "<script>" + source + "</script>")
+    dictionary = json.loads((WEB / "food-words.json").read_text(encoding="utf8"))
+    scripts = {"catalog": catalog, "food-words": "const foodWords = " + json.dumps(dictionary) + ";", "app": js}
+    def inline(match):
+        name = match[1]
+        source = scripts[name] if name in scripts else (WEB / (name + ".js")).read_text(encoding="utf8")
+        return "<script>" + source.replace("</script", "<\\/script") + "</script>"
+    page = re.sub(r'<script src="([\w-]+)\.js"></script>', inline, page)
     (OUT / "Sport-preview.html").write_text(page, encoding="utf8")
     with ZipFile(OUT / "Sport-HA.zip", "w", ZIP_DEFLATED) as archive:
-        for file in [ROOT / name for name in ["config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md", "server.py", "photos.py","measurements.py","food_catalog.py"]] + sorted((ROOT / "translations").glob("*.yaml")) + sorted(f for f in WEB.iterdir() if f.is_file()):
+        for file in [ROOT / name for name in ["config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md", "server.py", "photos.py","measurements.py","food_catalog.py","nutrition.py"]] + sorted((ROOT / "translations").glob("*.yaml")) + sorted(f for f in WEB.iterdir() if f.is_file()):
             archive.write(file, "sport/" + file.relative_to(ROOT).as_posix())
 
 

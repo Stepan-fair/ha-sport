@@ -48,7 +48,7 @@ function measurementAt(s,date,scale=[],preferredEntity=""){
 function atTime(s,date,scale=[]){return measurementAt(s,date,scale)?.kg}
 function completedBefore(workouts,date){
  const at=Date.parse(date);
- return workouts.filter(w=>Date.parse(w.endedAt||w.end||w.date)<=at&&Date.parse(w.date)<at)
+ return workouts.filter(w=>!w.cancelled&&!w.canceled&&!["cancelled","canceled","aborted"].includes(w.status)&&Date.parse(w.endedAt||w.end||w.date)<=at&&Date.parse(w.date)<at)
    .sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
 }
 function workingExercises(w){
@@ -69,7 +69,62 @@ function trainingCycle(p,past,date){
  }
  return next;
 }
-function plan(s,date){
+function compoundLift(name){
+ return ["leg-press","row","pulldown","chest-press"].includes(movementKey(name))||["Жим лёжа","Жим гантелей на скамье","Присед с гантелью у груди"].includes(name);
+}
+function strengthBlock(e,index){
+ const working=e.sets.filter(t=>!t.warmup),explicit=e.sets.length-working.length;
+ const compound=compoundLift(e.name),plates=e.name==="Жим ногами под 45°"||/штанг|Жим лёжа/i.test(e.name);
+ const setup=plates?4:3,restSeconds=e.restSeconds??(plates?150:compound?120:90);
+ if(!e.sets.length)return {minutes:0,ramp:0,working:0,restSeconds};
+ const ramp=explicit||(working.length?(index===0?2:compound?1:0):0);
+ const performance=working.reduce((sum,t)=>sum+Math.min(40,Math.max(1,Number(t.reps)||10))*0.08,0);
+ return {minutes:Math.ceil(setup+ramp*2+performance+Math.max(0,working.length-1)*restSeconds/60),ramp,working:working.length,restSeconds};
+}
+function transitionMinutes(count){return count?4+Math.ceil((count-1)*1.5):0}
+function workoutPace(past,equipment){
+ const available=new Set(equipment.map(movementKey)),ratios=[];
+ for(const w of past){
+   const elapsed=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
+   const done=workingExercises(w).map(e=>({...e,sets:e.sets.filter(t=>t.done&&t.reps>0)}));
+   if(!(elapsed>=15&&elapsed<=240)||done.length<2||!done.some(e=>available.has(movementKey(e.name))))continue;
+   const cardio=(w.cardio||[]).reduce((sum,c)=>sum+(Number(c.seconds)>0?Number(c.seconds)/60:NaN),0);
+   const base=done.reduce((sum,e,i)=>sum+strengthBlock(e,i).minutes,0);
+   const ratio=(elapsed-cardio-transitionMinutes(done.length))/base;
+   if(!(ratio>=0.5&&ratio<=2.5))continue;
+   ratios.push(ratio);
+   if(ratios.length===5)break;
+ }
+ if(ratios.length<2)return {pace:1,samples:0};
+ ratios.sort((a,b)=>a-b);
+ const middle=(ratios.length-1)/2;
+ const median=(ratios[Math.floor(middle)]+ratios[Math.ceil(middle)])/2;
+ // End-to-end observations include unmeasured waiting; blend a small sample with the initial estimate.
+ const weight=ratios.length/(ratios.length+3);
+ return {pace:1+(Math.max(0.5,Math.min(2,median))-1)*weight,samples:ratios.length};
+}
+function estimateWorkout(exercises,timing){
+ let station=0;
+ const blocks=exercises.map(e=>strengthBlock(e,e.sets.length?station++:station));
+ const cardio=timing.cardio.reduce((sum,c)=>sum+c.minutes,0);
+ const duration=indices=>{
+   const active=indices.filter(i=>blocks[i].minutes>0);
+   return cardio+transitionMinutes(active.length)+Math.round(active.reduce((sum,i,j)=>sum+strengthBlock(exercises[i],j).minutes,0)*timing.pace);
+ };
+ const all=exercises.map((_,i)=>i),mandatory=all.filter(i=>!exercises[i].optional);
+ const optional=all.filter(i=>exercises[i].optional);
+ const total=duration(all);
+ // Keep manual additions and the lead lift; the last automatic accessory can be skipped.
+ for(let j=mandatory.length-1;j>0&&duration(mandatory)>timing.budget;j--){
+   const i=mandatory[j];
+   if(exercises[i].manual)continue;
+   optional.push(i);mandatory.splice(j,1);
+ }
+ const transitions=transitionMinutes(blocks.filter(b=>b.minutes).length);
+ const adjustment=total-cardio-transitions-blocks.reduce((sum,b)=>sum+b.minutes,0);
+ return {blocks,total,transitions,adjustment,optional,required:duration(mandatory)};
+}
+function buildWorkoutPlan(s,date){
  const past=completedBefore(s.workouts,date),p=s.profile;
  const strengthDays=past.filter(w=>workingExercises(w).length);
  const cycle=trainingCycle(p,past,date);
@@ -79,7 +134,11 @@ function plan(s,date){
    available.find(n=>movementKey(n)===movementKey(name))).filter(Boolean);
  const group=priorityGroup(p);
  const goals=new Set([p.goal,...(p.extra||[])]);
- const count=Math.max(1,Math.min(6,Math.floor(p.minutes/10)+(goals.has("Набор мышц")?1:0)-(p.returning?1:0)));
+ const budget=Number(p.minutes)||45;
+ const timing={budget,...workoutPace(past,p.equipment),cardio:[
+   {activity:"Дорожка",minutes:budget>=40?15:budget>=20?4:3},
+   {activity:"Спокойная ходьба",minutes:budget>=35?5:3}
+ ]};
  const priority=available.filter(n=>group&&guides[n]?.group===group);
  if(priority.length&&!list.some(n=>guides[n]?.group===group))list.unshift(priority[0]);
  // The main lift leads the leg session. The chosen focus leads the other session.
@@ -94,29 +153,40 @@ function plan(s,date){
    }
  }
  // Fill missing movements from the member's actual equipment, favouring different muscle groups.
- while(list.length<count){
+ while(list.length<6){
    const remaining=available.filter(n=>!list.some(chosen=>movementKey(chosen)===movementKey(n)));
    if(!remaining.length)break;
    const coverage=n=>list.filter(x=>guides[x]?.group===guides[n]?.group).length;
    remaining.sort((a,b)=>coverage(a)-coverage(b));
    list.push(remaining[0]);
  }
- if(strengthDays.length && count>=3 && list.length>=count){
-   const slot=count-1,group=guides[list[slot]]?.group;
-   const options=available.filter(n=>guides[n]?.group===group&&!list.slice(0,slot).some(chosen=>movementKey(chosen)===movementKey(n)));
-   // Keep the main lifts comparable and vary the last accessory within the same group.
-   const lastDone=name=>strengthDays.find(w=>w.exercises.some(e=>e.name===name&&e.sets.some(t=>t.done)))?.date||"";
-   if(options.length>1)list[slot]=options.sort((a,b)=>lastDone(a).localeCompare(lastDone(b)))[0];
- }
- const chosen=list.slice(0,count);
  if(goals.has("Сила")){
-   const compound=n=>["leg-press","row","pulldown","chest-press"].includes(movementKey(n))||["Жим лёжа","Жим гантелей на скамье","Присед с гантелью у груди"].includes(n);
-   const first=chosen.shift();
-   chosen.sort((a,b)=>Number(compound(b))-Number(compound(a)));
-   if(first)chosen.unshift(first);
+   const first=list.shift();
+   list.sort((a,b)=>Number(compoundLift(b))-Number(compoundLift(a)));
+   if(first)list.unshift(first);
  }
- return chosen.map(name=>exerciseFor(name,p,past,date));
+ const exercises=[];
+ for(const name of list){
+   const next=exerciseFor(name,p,past,date);
+   if(estimateWorkout([...exercises,next],timing).total>budget){
+     timing.reserve=name;break;
+   }
+   exercises.push(next);
+ }
+ if(strengthDays.length&&exercises.length>=3){
+   const slot=exercises.length-1,group=guides[exercises[slot].name]?.group;
+   const others=exercises.slice(0,slot),used=new Set(others.map(e=>movementKey(e.name)));
+   const lastDone=name=>strengthDays.find(w=>workingExercises(w).some(e=>e.name===name))?.date||"";
+   const options=available.filter(n=>guides[n]?.group===group&&!used.has(movementKey(n))&&n!==timing.reserve);
+   options.sort((a,b)=>lastDone(a).localeCompare(lastDone(b)));
+   for(const name of options){
+     const next=exerciseFor(name,p,past,date);
+     if(estimateWorkout([...others,next],timing).total<=budget){exercises[slot]=next;break}
+   }
+ }
+ return {exercises,timing};
 }
+function plan(s,date){return buildWorkoutPlan(s,date).exercises}
 const loadUnits=["Как в прежних записях","Весь вес","Одна гантель","Только блины","Шкала тренажёра"];
 function exerciseResultName(e){return e.loadUnit?e.name+" · "+e.loadUnit:e.name}
 function exerciseHistory(name,past,unit){
@@ -191,7 +261,7 @@ function workoutEnergy(w,bodyKg){
  let gross=strength>0?3.5*kcalPerMetMinute*strength:0;
  for(const c of cardio){
    if(c.kcal!=null&&c.kcal!==""&&Number.isFinite(Number(c.kcal))&&Number(c.kcal)>=0)gross+=Number(c.kcal);
-   else if(kg>0)gross+=treadmillMet(c)*kcalPerMetMinute*Number(c.seconds)/60;
+   else if(kg>0&&(!c.activity||["Дорожка","Спокойная ходьба"].includes(c.activity)))gross+=treadmillMet(c)*kcalPerMetMinute*Number(c.seconds)/60;
    else return {gross:null,minutes};
  }
  return {gross,minutes};
@@ -218,6 +288,42 @@ function canonicalSupp(name){
  const rules=[[/омег|omega/i,"Омега-3"],[/витамин\s*[дd]\s*3?|^d3$/i,"Витамин D3"],[/креатин|creatine/i,"Креатин"],[/магний|magnesium/i,"Магний"],[/протеин|protein/i,"Протеин"],[/железо/i,"Железо"]];
  return rules.find(([re])=>re.test(name))?.[1]||name;
 }
+function recordedDose(name,servings,powder=30,mealId=""){
+ const kind=canonicalSupp(name);
+ if(kind!=="Креатин"&&kind!=="Протеин")return {};
+ if(!Number.isFinite(servings)||servings<=0)throw Error("Укажи положительное число принятых порций за день.");
+ if(kind==="Креатин")return {servings,creatinePerServing:3};
+ const facts={servings,perServing:[null,22,null,null]};
+ if(powder!=null){
+   if(!Number.isFinite(powder)||powder<=0)throw Error("Проверь массу порошка на одно саше.");
+   facts.powderPerServing=powder;
+ }
+ if(mealId)facts.mealId=mealId;
+ return facts;
+}
+function replaceRecordedDose(entries,index,name,replacement){
+ const old=entries[index],kind=canonicalSupp(name);
+ if(!old||!old.names.some(n=>canonicalSupp(n)===kind))throw Error("Отметка уже изменилась. Обнови страницу.");
+ const names=old.names.filter(n=>canonicalSupp(n)!==kind);
+ const rest=names.length?[{...old,names}]:[];
+ if(replacement)rest.push(replacement);
+ return [...entries.slice(0,index),...rest,...entries.slice(index+1)];
+}
+function rememberDosePlan(state,day){
+ const plans=state.suppPlans||={};
+ if(Object.hasOwn(plans,day))return;
+ // Existing marks from before daily snapshots carry no evidence of the plan.
+ plans[day]=(state.supps||[]).some(row=>row.date.slice(0,10)===day)?null:[...new Set((state.profile?.supps||[]).map(canonicalSupp))];
+}
+function addDoseEntries(state,day,entries){
+ rememberDosePlan(state,day);
+ const rows=state.supps||=[];
+ const taken=new Set(rows.filter(row=>row.date.slice(0,10)===day).flatMap(row=>row.names.map(canonicalSupp)));
+ for(const entry of entries){
+   const name=canonicalSupp(entry.names[0]);
+   if(!taken.has(name)){rows.push(entry);taken.add(name)}
+ }
+}
 function trainingSlot(state,draft,day){
  const actual=state.workouts.filter(w=>w.date.slice(0,10)===day).sort((a,b)=>a.date.localeCompare(b.date))[0];
  const session=actual||(draft?.date.slice(0,10)===day?draft:null);
@@ -232,4 +338,4 @@ function schedule(name,slot){
  if(label==="Протеин"&&slot!=="Отдых")return [trainingSlots[slot],"После зала, если белковой еды не хватает. Можно с другим приёмом пищи."];
  return [item[2],item[3]];
 }
-if(typeof module!=="undefined") module.exports={exerciseResultName,workoutEnergy,plan,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry};
+if(typeof module!=="undefined") module.exports={exerciseResultName,workoutEnergy,plan,buildWorkoutPlan,estimateWorkout,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry,recordedDose,replaceRecordedDose,addDoseEntries};

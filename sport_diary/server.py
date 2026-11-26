@@ -5,14 +5,17 @@ from http.client import HTTPException
 from contextlib import closing
 import os
 import sqlite3
+import subprocess
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit, parse_qs, urlencode
+from urllib.parse import urlsplit, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from threading import Event, Thread
 import measurements
 import food_catalog
+import nutrition
+from datetime import datetime
 from photos import CATALOG, PHOTO_PATHS, PHOTO_SOURCE
 
 ROOT = Path(__file__).resolve().parent
@@ -33,7 +36,7 @@ def options():
 
 
 def online_food(q):
-    fields = "code,product_name,product_name_ru,brands,nutriments,nutrition_data_per"
+    fields = "code,product_name,product_name_ru,brands,quantity,nutriments,nutrition_data_per"
     barcode = bool(food_catalog.BARCODE.fullmatch(q))
     try:
         if barcode:
@@ -66,6 +69,16 @@ def allowed_profiles(settings, user_id):
     if owned[0] == "person1" and settings.get("person1_can_open_both") is True:
         return PROFILES
     return owned
+
+
+def assistant_profile(settings, user_id):
+    profile = settings.get("nutrition_assistant_profile")
+    owners = [settings.get(p + "_user") for p in PROFILES]
+    if (profile in PROFILES and user_id and user_id not in owners and
+            user_id == settings.get("nutrition_assistant_user") and settings.get(profile + "_user") and
+            owners.count(settings[profile + "_user"]) == 1):
+        return profile
+    return None
 
 
 def core(path):
@@ -126,14 +139,58 @@ def read_state(db, who):
     return {"rev": row[0], "data": json.loads(row[1])} if row else {"rev": 0, "data": {}}
 
 
+def write_state(db, who, rev, data):
+    db.execute("INSERT OR REPLACE INTO profile VALUES (?,?,?)", (who, rev, json.dumps(data)))
+
+
 def save(db, who, body):
     db.execute("BEGIN IMMEDIATE")
     old = read_state(db, who)
     if old["rev"] != body["rev"]:
         return None
     rev = old["rev"] + 1
-    db.execute("INSERT OR REPLACE INTO profile VALUES (?,?,?)", (who, rev, json.dumps(body["data"])))
+    write_state(db, who, rev, body["data"])
     return rev
+
+
+def open_diary():
+    db = sqlite3.connect(DATA / "sport.db")
+    db.execute("CREATE TABLE IF NOT EXISTS profile(who TEXT PRIMARY KEY,rev INTEGER,body TEXT)")
+    return db
+
+
+def append_meal(db, who, body):
+    meal = nutrition.make_meal(body)
+    signature = nutrition.operation_signature(body)
+    # The revision and the operation receipt commit together, including when an owner writes concurrently.
+    db.execute("BEGIN IMMEDIATE")
+    db.execute("""CREATE TABLE IF NOT EXISTS food_operation(
+               who TEXT, operation TEXT, signature TEXT NOT NULL, PRIMARY KEY (who, operation))""")
+    receipt = db.execute("SELECT signature FROM food_operation WHERE who=? AND operation=?",
+                         (who, body["operationId"])).fetchone()
+    current = read_state(db, who)
+    data = current["data"]
+    if receipt:
+        if receipt[0] != signature:
+            return 409, {"error": "Этот ID операции уже использован с другими данными."}
+        if not any(m.get("id") == meal["id"] for _, m in nutrition.meals_in(data)):
+            return 410, {"error": "Владелец удалил эту порцию."}
+        return 200, {"id": meal["id"]}
+    if any(m.get("id") == meal["id"] for _, m in nutrition.meals_in(data)):
+        return 409, {"error": "Идентификатор записи уже занят."}
+    data.setdefault("meals", []).append(meal)
+    nutrition.remember_new_card(data, meal)
+    write_state(db, who, current["rev"] + 1, data)
+    db.execute("INSERT INTO food_operation VALUES (?,?,?)", (who, body["operationId"], signature))
+    db.commit()
+    return 201, {"id": meal["id"]}
+
+
+def profile_scale_rows(settings, who):
+    entity, shared = measurements.scale_binding(settings, who)
+    if shared:
+        return [r for r in measurements.readings(DATA / "sport.db", who) if r["entity"] != entity]
+    return measurements.profile_readings(DATA / "sport.db", who, entity, core)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -149,16 +206,71 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def nutrition_request(self, url, who, settings):
+        parts = url.path.strip("/").split("/")
+        query = parse_qs(url.query, keep_blank_values=True)
+        if query and (parts != ["nutrition", "cards"] or set(query) - {"q"}):
+            return self.reply(400, {})
+        if self.command == "POST":
+            if parts != ["nutrition", "meals"]:
+                return self.reply(405, {})
+            if self.headers.get("Content-Type") != "application/json":
+                return self.reply(415, {})
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 8192:
+                return self.reply(413, {})
+            try:
+                body = json.loads(self.rfile.read(size))
+                with closing(open_diary()) as db:
+                    return self.reply(*append_meal(db, who, body))
+            except (nutrition.BadPortion, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                return self.reply(400, {"error": str(exc) if isinstance(exc, nutrition.BadPortion) else "Некорректная запись."})
+        if parts == ["nutrition", "context"]:
+            now = datetime.now().astimezone()
+            return self.reply(200, {"today": now.date().isoformat(), "zone": now.tzname()})
+        with closing(open_diary()) as db:
+            state = read_state(db, who)["data"]
+        if parts == ["nutrition", "cards"]:
+            cards = nutrition.personal_cards(state)
+            q = query.get("q", [""])[0].strip()[:100]
+            if q:
+                cards = food_catalog.search_cards(q, cards)
+            return self.reply(200, cards)
+        if len(parts) == 3 and parts[1] == "meals":
+            ident = unquote(parts[2])
+            for i, item in nutrition.meals_in(state):
+                if (item.get("id") or f"legacy-{i}-{item.get('date', '')}") == ident:
+                    return self.reply(200, nutrition.public_meal(item, i))
+            return self.reply(404, {})
+        if len(parts) == 3 and parts[1] == "days":
+            day = parts[2]
+            if not nutrition.valid_day(day):
+                return self.reply(400, {})
+            entity, _ = measurements.scale_binding(settings, who)
+            result = nutrition.daily_calculation("day", {"state": state, "day": day, "entity": entity,
+                                                       "scale": profile_scale_rows(settings, who)})
+            result["meals"] = sorted((nutrition.public_meal(m, i) for i, m in nutrition.meals_in(state)
+                                      if str(m.get("date", ""))[:10] == day), key=lambda m: m["date"])
+            return self.reply(200, result)
+        return self.reply(404, {})
+
     def handle_request(self):
         if self.client_address[0] not in ("172.30.32.2", "127.0.0.1"):
             return self.reply(403, {})
         url = urlsplit(self.path)
         who = url.path.split("/")[-1]
-        if url.path == "/profiles" or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/food")):
+        if url.path in ("/", "/profiles", "/food") or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/nutrition/")):
             settings = options()
             user_id = self.headers.get("X-Remote-User-Id") if self.client_address[0] == "172.30.32.2" else None
             allowed = allowed_profiles(settings, user_id)
-            if (who in PROFILES and who not in allowed) or (url.path == "/food" and not allowed):
+            assistant = assistant_profile(settings, user_id)
+            if url.path.startswith("/nutrition/"):
+                if not assistant:
+                    return self.reply(403, {})
+                return self.nutrition_request(url, assistant, settings)
+            if url.path == "/" and assistant and self.command == "GET":
+                return self.reply(200, (ROOT / "web" / "assistant.html").read_bytes(), "text/html; charset=utf-8")
+            if (who in PROFILES and who not in allowed) or (url.path == "/food" and not (allowed or assistant)):
                 return self.reply(403, {})
         if url.path == "/profiles" and self.command == "GET":
             return self.reply(200, [{"id": p, "name": profile_name(settings, p),
@@ -167,15 +279,11 @@ class Handler(BaseHTTPRequestHandler):
                                     for p in PROFILES
                                     if p in allowed])
         if url.path == "/weights/"+who and who in PROFILES and self.command == "GET":
-            entity, shared = measurements.scale_binding(settings, who)
-            if shared:
-                return self.reply(200, [r for r in measurements.readings(DATA/"sport.db", who) if r["entity"] != entity])
-            return self.reply(200, measurements.profile_readings(DATA/"sport.db", who, entity, core))
+            return self.reply(200, profile_scale_rows(settings, who))
         if url.path == "/scale-info/"+who and who in PROFILES and self.command == "GET":
             return self.reply(200, scale_features())
         if url.path == "/profile/" + who and who in ("person1", "person2"):
-            with closing(sqlite3.connect(DATA / "sport.db")) as db:
-                db.execute("CREATE TABLE IF NOT EXISTS profile(who TEXT PRIMARY KEY,rev INTEGER,body TEXT)")
+            with closing(open_diary()) as db:
                 if self.command == "GET":
                     return self.reply(200, read_state(db, who))
                 if self.headers.get("Content-Type") != "application/json":
@@ -212,6 +320,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/catalog.js":
             script = "const exerciseCatalog = " + json.dumps(CATALOG) + "; const exercisePhotoBase = 'photos/';"
             return self.reply(200, script.encode(), "text/javascript")
+        if url.path == "/food-words.js":
+            words = (ROOT / "web" / "food-words.json").read_text(encoding="utf8")
+            return self.reply(200, ("const foodWords = " + words + ";").encode(), "text/javascript")
         if url.path.startswith("/photos/"):
             name = url.path.removeprefix("/photos/")
             if name not in PHOTO_PATHS:
@@ -227,6 +338,7 @@ class Handler(BaseHTTPRequestHandler):
         static = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js","text/javascript"),
                   "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript"),
                   "/foods.js": ("foods.js","text/javascript"), "/reports.js": ("reports.js","text/javascript"),
+                  "/portions.js": ("portions.js","text/javascript"), "/assistant.js": ("assistant.js","text/javascript"),
                   "/report-view.js": ("report-view.js","text/javascript")}
         if url.path in static:
             name, mime = static[url.path]
@@ -236,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.handle_request()
-        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError):
             self.reply(503, {"error": "Данные временно недоступны"})
 
     do_POST = do_GET

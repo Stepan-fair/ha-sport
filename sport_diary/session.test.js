@@ -5,8 +5,9 @@ const vm=require("node:vm");
 const path=require("node:path");
 test("Старт, изменение числа подходов, отмена и сохранение по профилю",async()=>{
  const entries=new Map(),drafts=new Map(),nodes=new Map();
+ const listeners={};
  function node(id){if(!nodes.has(id))nodes.set(id,{value:"",innerHTML:"",dataset:{}});return nodes.get(id)}
- const ctx=vm.createContext({document:{getElementById:node,querySelector:node,querySelectorAll:()=>[],addEventListener(){}},
+ const ctx=vm.createContext({document:{getElementById:node,querySelector:node,querySelectorAll:()=>[],addEventListener(type,fn){(listeners[type]||=[]).push(fn)}},
     crypto:require("crypto"),localStorage:{get length(){return drafts.size},key:i=>[...drafts.keys()][i],removeItem:k=>drafts.delete(k),getItem:k=>drafts.get(k),setItem:(k,v)=>drafts.set(k,v)},confirm:()=>true,structuredClone,
     fetch:async(p,o)=>({ok:true,json:async()=>{
       if(p==="profiles")return [{id:"person1",name:"Первый"},{id:"person2",name:"Второй"}];
@@ -15,13 +16,22 @@ test("Старт, изменение числа подходов, отмена �
       return entries.get(p)||{data:{},rev:0};
     }})});
  ctx.exerciseCatalog=require("./web/catalog.json");
+ ctx.foodWords=require("./web/food-words.json");
  ctx.exercisePhotoBase="photos/";
- for(const f of ["logic.js","reports.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
+ for(const f of ["logic.js","foods.js","portions.js","reports.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
  const run=s=>vm.runInContext(s,ctx);
  await run("load()");
  run('selectDay("2026-01-01")');
  node("start").value="2026-01-01T10:00";
+ run("state.profile.minutes=60");
+ const preview=run("workout()");
+ assert.match(preview,/Разминка.*15 мин/s);
+ assert.match(preview,/Заминка.*5 мин/s);
  await run('action("start")');const n=run("draft.exercises[0].sets.length");
+ const sessionHtml=run("workout()");
+ assert.ok(sessionHtml.indexOf('id="sec0"')<sessionHtml.indexOf('id="k0_0"'));
+ assert.ok(sessionHtml.indexOf('id="sec1"')>sessionHtml.lastIndexOf('class="set"'));
+ assert.equal(run("draft.cardio.every(c=>!Object.keys(c).length)"),true);
  await run('action("add-0")');assert.equal(run("draft.exercises[0].sets.length"),n+1);
  await run('action("sub-0")');assert.equal(run("draft.exercises[0].sets.length"),n);
  await run('action("cancel")');assert.equal(run("draft"),null);assert.equal(entries.size,0);
@@ -35,6 +45,7 @@ test("Старт, изменение числа подходов, отмена �
  node("custom-new").value="Моё упражнение";
  await run('action("choose-new")');
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
+ assert.match(run("workout()"),/Сверх бюджета/);
  node("exercise-0").value="name:Подъём гантелей в стороны";
  await run('action("choose-0")');
  assert.equal(run("draft.exercises[0].name"),"Подъём гантелей в стороны");
@@ -43,11 +54,19 @@ test("Старт, изменение числа подходов, отмена �
  await run("load()");
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
  await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.length,1);
+ assert.deepEqual(entries.get("profile/person1").data.workouts[0].cardio,[]);
  assert.equal(entries.has("profile/person2"),false);
  run('selectDay("2026-01-04")');node("start").value="2026-01-04T23:40";
  await run('action("start")');node("end").value="2026-01-05T00:15";
  run('draft.end=$("end").value;draft.exercises[0].sets[0].done=true');
+ run('tab=1;draft.cardio[0]={time:"12:40",speed:"5.4",incline:"3.5",kcal:"83"}');
+ const input={id:"distance0",dataset:{c:"0",f:"distance"},value:"1,14",closest:()=>null,matches:()=>false};
+ for(const fn of listeners.input)fn({target:input});
  await run('action("finish")');assert.equal(entries.get("profile/person1").data.workouts.at(-1).end,"2026-01-05T00:15");
+ const cardio=entries.get("profile/person1").data.workouts.at(-1).cardio[0];
+ assert.equal(Number(cardio.distance),1140);assert.equal(cardio.seconds,760);assert.equal(cardio.kcal,83);assert.equal(cardio.hr,undefined);
+ await run('action("edit-workout-"+state.workouts.at(-1).id)');
+ assert.match(run("workout()"),/id="distance0"[^>]*value="1\.14"/);await run('action("cancel")');
  const oldExercise={name:"Жим ногами",previous:"",sets:[{kg:72,reps:9,done:true,easy:false}]};
  const oldDay="2026-01-02",oldDraft={id:"old-open",date:oldDay+"T10:00",exercises:[oldExercise],cardio:[{},{}]};
  const legacy={rev:7,data:{profile:{equipment:["Жим ногами"],exerciseNotes:{"exercise:жим ногами":"Сиденье 3"}},
@@ -59,5 +78,42 @@ test("Старт, изменение числа подходов, отмена �
  assert.match(run('workout()'),/Жим ногами · тренажёр не указан/);
  assert.match(run('notePanel("Жим ногами",0)'),/Сиденье 3/);
  assert.doesNotMatch(run('notePanel("Жим ногами горизонтальный",0)'),/Сиденье 3/);
+ assert.equal(entries.get("profile/person1").rev,7);
+ run('who="person2";selectDay("2026-01-06")');await run("load()");
+ assert.equal(run("draft"),null);
+ run("tab=1;state.profile.minutes=60");
+ node("start").value="2026-01-06T10:00";await run('action("start")');
+ const initialCount=run("draft.exercises.length");
+ const planInput={id:"plan-minutes-0",dataset:{planCardio:"0",planField:"minutes"},value:"0",validity:{valid:true},closest:()=>null,matches:()=>false};
+ for(const fn of listeners.input)fn({target:planInput});
+ await run('action("reserve-exercise")');
+ assert.equal(run("draft.exercises.length"),initialCount+1);
+ assert.equal(run("draft.exercises.at(-1).optional"),true);
+ await run("load()");assert.equal(run("draft.timing.cardio[0].minutes"),0);
+ assert.equal(run("draft.cardio.every(c=>!Object.keys(c).length)"),true);
+ run('draft.exercises[0].sets.forEach(t=>t.done=true);draft.end="2026-01-06T10:55"');
+ node("end").value="2026-01-06T10:55";await run('action("finish")');
+ const recorded=entries.get("profile/person2").data.workouts[0];
+ assert.equal(recorded.exercises.length,initialCount);assert.deepEqual(recorded.cardio,[]);
+ assert.equal(entries.get("profile/person1").rev,7);
+ const newSachet=run('doseFields("Протеин",{},selectedDay,false)');
+ assert.match(newSachet,/name="powderPerServing"[^>]*value="30"/);
+ assert.match(run('doseFields("Протеин",{},selectedDay,true)'),/name="powderPerServing"[^>]*value=""/);
+ assert.match(run('doseFields("Протеин",{powderPerServing:""},selectedDay,false)'),/name="powderPerServing"[^>]*value=""/);
+ const corrected=run('doseSnapshot("Протеин",{servings:"2",powderPerServing:"",mealId:""},{perServing:[100,20,1,2]})');
+ assert.deepEqual(Array.from(corrected.perServing),[100,20,1,2]);
+ assert.equal(corrected.powderPerServing,undefined);
+ // Leave the calendar visible at the local day boundary, then simulate a suspended tab.
+ let wall=new Date("2026-11-26T23:59:59.800").getTime(),tick,delay;
+ ctx.Date=class extends Date {constructor(...args){super(...(args.length?args:[wall]))}};
+ ctx.window={addEventListener(){},clearTimeout(){},setTimeout(fn,ms){tick=fn;delay=ms;return 1}};
+ ctx.document.querySelector=selector=>selector==="dialog[open]"?null:node(selector);
+ run('tab=0;selectDay("2026-11-26");render();watchCalendarDay()');
+ assert.match(node("content").innerHTML,/id="doseStatus">Пока нет отметки/);
+ assert.equal(delay,200);wall+=200;tick();
+ assert.match(node("content").innerHTML,/id="doseStatus">Не принимал/);
+ run('selectDay("2026-11-27");render()');
+ wall+=86400000;for(const fn of listeners.visibilitychange)fn();
+ assert.match(node("content").innerHTML,/id="doseStatus">Не принимал/);
  assert.equal(entries.get("profile/person1").rev,7);
 });

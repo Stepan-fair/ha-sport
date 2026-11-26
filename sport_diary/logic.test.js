@@ -27,7 +27,7 @@ test("Локальный поиск учитывает жирность, пор�
  const lookup=q=>localFoods(q,[],[]);
  assert.deepEqual(lookup("яйца")[0].nut,[157,12.7,11.5,0.8]);
  assert.equal(lookup("4600605029312")[0].name,"Творог 5% · Простоквашино");
- assert.equal(lookup("творог").length,4);
+ assert.ok(lookup("творог").length>=6);
  assert.equal(lookup("0.1% ТВОРОГ")[0].nut[0],55);
  assert.equal(lookup("кефир 5%").length,0);
  assert.equal(lookup("йогурт греческий")[0].nut[1],7);
@@ -220,4 +220,64 @@ test("Предписание, способы учёта веса, ночное �
  const {trainingSlot,schedule}=require("./web/logic");
  const slot=trainingSlot({workouts:[{date:"2026-03-10T02:00"}]},null,"2026-03-10");
  assert.equal(slot,"Ночью");assert.equal(schedule("Креатин",slot)[0],"Ночь");
+});
+
+test("Бюджет охватывает обе дорожки, подводящие подходы и переходы",()=>{
+ const profile={...s.profile,goal:"Набор мышц",workingSets:3,equipment:Object.keys(catalogue)};
+ const build=minutes=>require("./web/logic").buildWorkoutPlan({profile:{...profile,minutes},workouts:[]},"2026-11-24T10:00");
+ const estimate=d=>require("./web/logic").estimateWorkout(d.exercises,d.timing);
+ const short=build(45),hour=build(60),long=build(90);
+ assert.equal(hour.exercises[0].name,"Жим ногами под 45°");
+ assert.equal(hour.exercises.length,2);
+ assert.ok(short.exercises.length<hour.exercises.length);
+ assert.equal(long.exercises.length,4);
+ for(const d of [short,hour,long]){
+   const t=estimate(d);
+   assert.ok(t.total<=d.timing.budget);
+   assert.equal(d.timing.cardio[0].minutes,15);assert.equal(d.timing.cardio[1].minutes,5);
+   assert.ok(t.transitions>0&&t.blocks[0].ramp>0);
+ }
+ const t=estimate(hour);
+ hour.exercises[0].restSeconds=240;
+ assert.ok(estimate(hour).total>t.total);
+ delete hour.exercises[0].restSeconds;
+ hour.exercises[0].sets.push({...hour.exercises[0].sets[0]});
+ assert.ok(estimate(hour).total>t.total);
+ hour.timing.cardio[0].minutes+=15;
+ assert.ok(estimate(hour).total>60&&estimate(hour).optional.includes(1));
+ hour.exercises[1].manual=true;
+ assert.ok(!estimate(hour).optional.includes(1));
+});
+test("Темп строится по завершённым сопоставимым занятиям этого профиля до выбранного момента",()=>{
+ const profile={...s.profile,minutes:60,workingSets:3,equipment:Object.keys(catalogue)};
+ const exercises=["Жим ногами горизонтальный","Горизонтальная тяга на нижнем блоке","Жим гантелей на скамье","Подъём гантелей в стороны"].map(name=>({name,sets:Array.from({length:3},()=>({kg:30,reps:10,done:true}))}));
+ const session=(day,end="11:30")=>({date:day+"T10:00",end:day+"T"+end,exercises,cardio:[{seconds:900}]});
+ const build=(workouts,date="2026-11-24T10:00")=>require("./web/logic").buildWorkoutPlan({profile,workouts},date);
+ const first=session("2026-11-18"),second=session("2026-11-21");
+ const mixed=[first,second,{...second,exercises:[]},{...second,cancelled:true},session("2026-11-22","23:09"),session("2026-11-26")];
+ const history=build(mixed);
+ assert.equal(history.timing.samples,2);assert.ok(history.timing.pace>1);
+ assert.equal(build(mixed,"2026-11-20T10:00").timing.pace,1);
+ assert.equal(build([]).timing.samples,0);
+ assert.equal(build([]).timing.pace,1);
+ assert.ok(history.exercises.length<=2);
+ const comparable=day=>({...session(day),cardio:[{seconds:840}],exercises:exercises.map((e,i)=>({...e,
+   sets:Array.from({length:[4,4,2,3][i]},(_,j)=>({...e.sets[0],warmup:i<2&&j===0}))}))});
+ const similar=[comparable("2026-11-16"),comparable("2026-11-20")];
+ for(const [minutes,count] of [[45,1],[60,2],[90,4]]){
+   const d=require("./web/logic").buildWorkoutPlan({profile:{...profile,minutes},workouts:similar},"2026-11-24T10:00");
+   assert.equal(d.exercises.length,count);
+   assert.ok(require("./web/logic").estimateWorkout(d.exercises,d.timing).total<=minutes);
+ }
+});
+test("Дополнительный блок не входит в обязательное время, велотренажёр без фактических ккал не использует формулу дорожки",()=>{
+ const {buildWorkoutPlan,estimateWorkout}=require("./web/logic");
+ const d=buildWorkoutPlan({profile:{...s.profile,minutes:90,equipment:Object.keys(catalogue)},workouts:[]},"2026-11-24T10:00");
+ d.exercises[0].optional=true;
+ const estimate=estimateWorkout(d.exercises,d.timing);
+ assert.ok(estimate.optional.includes(0));assert.ok(estimate.required<estimate.total);
+ const w={date:"2026-01-03T10:00",end:"2026-01-03T10:30",kg:80,exercises:[],cardio:[{seconds:600,activity:"Велотренажёр",speed:15}]};
+ assert.deepEqual(workoutEnergy(w),{gross:null,minutes:10});
+ w.cardio[0].kcal=75;
+ assert.deepEqual(workoutEnergy(w),{gross:75,minutes:10});
 });

@@ -105,3 +105,86 @@ test("История рабочих подходов разделена по с�
  assert.equal(r.sets,3);assert.deepEqual(r.exerciseNames,["Жим","Жим · Одна гантель"]);
  assert.equal(r.rows[0].exercises.get("Жим · Одна гантель").sets,1);
 });
+
+const {nutritionForDay,supplementStatus}=require("./web/reports");
+const {recordedDose,addDoseEntries}=require("./web/logic");
+const dayA="2026-03-02",dayB="2026-03-03";
+const dose=(name,day,details)=>({date:day,period:"Утро",names:[name],...details});
+test("Исправление и удаление одной старой отметки сохраняет прежние участники группы и повторный приём в этот день",()=>{
+ const {replaceRecordedDose}=require("./web/logic");
+ const old=dose("Креатин",dayA);old.names.push("Протеин");
+ const another=dose("Протеин",dayA,{period:"Вечер"});
+ const fixed=dose("Протеин",dayA,{servings:1.5,perServing:[null,22,null,null]});
+ const rows=replaceRecordedDose([old,another],0,"Протеин",fixed);
+ assert.deepEqual(rows,[{...old,names:["Креатин"]},fixed,another]);
+ assert.deepEqual(replaceRecordedDose(rows,2,"Протеин"),[rows[0],fixed]);
+ assert.deepEqual(old.names,["Креатин","Протеин"]);
+});
+test("Местная полночь закрывает пустой день, внесение и снятие отметки меняют статус только выбранного профиля",()=>{
+ const s=base();s.profile.supps=["Креатин","Протеин"];
+ assert.equal(supplementStatus(s,dayA,dayA),"Пока нет отметки");
+ assert.equal(supplementStatus(s,dayB,dayA),"Запланировано");
+ assert.equal(supplementStatus(s,dayA,dayB),"Не принимал");
+ s.supps=[];addDoseEntries(s,dayA,[dose("Creatine Monohydrate",dayA)]);
+ assert.equal(supplementStatus(s,dayA,dayB),"Принял часть");
+ s.supps[0].names.push("Протеин");assert.equal(supplementStatus(s,dayA,dayB),"Принял");
+ assert.equal(supplementStatus(base(),dayA,dayB),"Не принимал");
+ s.supps=[];assert.equal(supplementStatus(s,dayA,dayB),"Не принимал");
+});
+test("Добавление и удаление добавок из профиля не пересчитывает план прошлого дня",()=>{
+ const s=base();s.profile.supps=["Креатин"];s.supps=[];
+ addDoseEntries(s,dayA,[dose("Креатин",dayA)]);
+ s.profile.supps.push("Протеин");
+ addDoseEntries(s,dayB,[dose("Креатин",dayB)]);
+ assert.equal(supplementStatus(s,dayA,dayB),"Принял");
+ assert.equal(supplementStatus(s,dayB,dayB),"Принял часть");
+ s.profile.supps=[];
+ assert.equal(supplementStatus(s,dayB,"2026-03-04"),"Принял часть");
+ s.supps=s.supps.filter(x=>x.date!==dayB);
+ assert.equal(supplementStatus(s,dayB,"2026-03-04"),"Не принимал");
+ addDoseEntries(s,dayB,[dose("Протеин",dayB)]);
+ assert.equal(supplementStatus(s,dayB,"2026-03-04"),"Принял часть");
+ const legacy={profile:{supps:["Креатин"]},supps:[dose("Креатин",dayA)]};
+ assert.equal(supplementStatus(legacy,dayA,dayB),"Есть отметки");
+ addDoseEntries(legacy,dayA,[dose("Протеин",dayA)]);
+ assert.equal(supplementStatus(legacy,dayA,dayB),"Есть отметки");
+});
+test("Размер принятой порции: дробные количества и независимые граммы креатина, порошка и белка",()=>{
+ assert.deepEqual(recordedDose("Креатин",0.5),{servings:0.5,creatinePerServing:3});
+ assert.deepEqual(recordedDose("Протеин",1.5),{servings:1.5,perServing:[null,22,null,null],powderPerServing:30});
+ assert.deepEqual(recordedDose("Протеин",1,null),{servings:1,perServing:[null,22,null,null]});
+ assert.equal(recordedDose("Протеин",2,30,"serving1").mealId,"serving1");
+ assert.equal(recordedDose("Протеин",1,28).powderPerServing,28);
+ assert.throws(()=>recordedDose("Протеин",1,-1));
+ for(const n of [0,-1,"",Infinity,NaN])assert.throws(()=>recordedDose("Протеин",n));
+});
+test("Питание считает зафиксированные КБЖУ и отдельный протеин по одному разу; удалённая или вчерашняя связь исключается",()=>{
+ const s=base();
+ s.meals=[{...meal(dayA,150),id:"plate",totals:[560,24,19,55]}, {...meal(dayB,2),id:"later",totals:[12,4,0,0]}];
+ s.foodComplete[dayA]=true;
+ s.supps=[dose("Протеин",dayA,{servings:1.5,perServing:[null,22,null,null]}),dose("Креатин",dayA,{servings:2,creatinePerServing:3})];
+ const get=()=>nutritionForDay(s,dayA);
+ assert.deepEqual(get().totals,[null,57,null,null]);assert.deepEqual(get().known,[560,57,19,55]);
+ assert.deepEqual(get().missing,[1,0,1,1]);assert.equal(get().count,2);
+ assert.equal(run(s,dayA,"day").balance,null);
+ s.supps[0].mealId="later";assert.equal(get().totals[1],57);
+ s.supps[0].mealId="plate";assert.deepEqual(get().totals,[560,24,19,55]);assert.equal(get().count,1);
+ assert.equal(get().supplements[0].linked,true);assert.equal(run(s,dayA,"day").balance,-1440);
+ s.meals.shift();assert.deepEqual(get().totals,[null,33,null,null]);
+ s.supps.shift();assert.deepEqual(get().totals,[null,null,null,null]);assert.equal(get().count,0);
+});
+test("Отчёты разделяют порции, белок из добавки и общий белок за день, неделю, месяц и год",()=>{
+ const s=base();s.meals=[{...meal(dayB,200),totals:[190,12,10,1]}];s.supps=[];
+ for(const day of ["2025-12-31","2026-01-01","2026-03-01",dayA,dayB]){
+   s.supps.push(dose("Креатин",day,{servings:0.5,creatinePerServing:3}),dose("Протеин",day,{servings:2,perServing:[null,22,null,null],powderPerServing:30}));
+ }
+ for(const [period,days] of [["day",1],["week",2],["month",3],["year",4]]){
+   const r=run(s,dayB,period);
+   assert.equal(r.doses.creatineGrams,1.5*days);assert.equal(r.doses.proteinGrams,44*days);
+   assert.equal(r.doses.proteinServings,2*days);assert.equal(r.doses.powderGrams,60*days);
+   assert.equal(r.nutrition.totals[1],12+44*days);
+ }
+ s.supps.push(dose("Протеин",dayB));s.supps.push(dose("Креатин",dayB));
+ const r=run(s,dayB,"day");assert.equal(r.doses.proteinUnknown,1);assert.equal(r.doses.creatineUnknown,1);
+ assert.equal(r.nutrition.totals[1],null);assert.equal(r.nutrition.known[1],56);
+});

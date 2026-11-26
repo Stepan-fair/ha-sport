@@ -1,5 +1,5 @@
 "use strict";
-const energyLogic=typeof module==="undefined"?{workoutEnergy,measurementAt,exerciseResultName}:require("./logic.js");
+const energyLogic=typeof module==="undefined"?{workoutEnergy,measurementAt,exerciseResultName,canonicalSupp}:require("./logic.js");
 function autoEnergyRule(profile,stored){
   if(stored?.mode==="manual"||stored?.mode==="off")return stored;
   const data=stored||profile||{};
@@ -16,6 +16,77 @@ function shiftDay(day,n){
 function monday(day){return shiftDay(day,-((new Date(day+"T12:00").getDay()+6)%7))}
 function reportStart(day,period){
   return period==="year"?day.slice(0,4)+"-01-01":period==="month"?day.slice(0,7)+"-01":period==="week"?monday(day):day;
+}
+function supplementStatus(state,day,today=reportDate(new Date())){
+  const taken=new Set((state.supps||[]).filter(x=>x.date.slice(0,10)===day).flatMap(x=>x.names.map(energyLogic.canonicalSupp)));
+  if(!taken.size)return day<today?"Не принимал":day===today?"Пока нет отметки":"Запланировано";
+  const planned=state.suppPlans?.[day];
+  if(!Array.isArray(planned))return "Есть отметки";
+  return planned.some(n=>!taken.has(energyLogic.canonicalSupp(n)))?"Принял часть":"Принял";
+}
+const macroSlots=[0,1,2,3];
+function scaledValue(value,factor){
+  if(!Number.isFinite(value)||value<0||!Number.isFinite(factor)||factor<=0)return null;
+  const result=value*factor;
+  return Number.isFinite(result)?result:null;
+}
+function emptyIntake(){
+  return {count:0,known:[0,0,0,0],missing:[0,0,0,0],totals:[null,null,null,null]};
+}
+function mergeIntake(sum,part){
+  sum.count+=part.count;
+  for(const i of macroSlots){
+    sum.known[i]+=part.known[i];
+    sum.missing[i]+=part.missing[i];
+    sum.totals[i]=sum.count&&!sum.missing[i]?sum.known[i]:null;
+  }
+  return sum;
+}
+function emptyDoseTotals(){
+  return {creatineGrams:0,creatineServings:0,creatineUnknown:0,proteinGrams:0,proteinServings:0,proteinUnknown:0,powderGrams:0,powderUnknown:0};
+}
+function dayIntake(meals,entries){
+  const summary=emptyIntake(), doses=emptyDoseTotals(), supplements=[];
+  function add(nut){
+    mergeIntake(summary,{count:1,known:nut.map(v=>v??0),missing:nut.map(v=>Number(v==null))});
+  }
+  for(const m of meals){
+    add(macroSlots.map(i=>Array.isArray(m.totals)?scaledValue(m.totals[i],1):scaledValue(m.nut?.[i],Number(m.amount)/100)));
+  }
+  for(const entry of entries){
+    const kinds=new Set(entry.names.map(energyLogic.canonicalSupp));
+    const servings=Number.isFinite(entry.servings)&&entry.servings>0?entry.servings:null;
+    if(kinds.has("Креатин")){
+      doses.creatineServings+=servings||0;
+      const grams=scaledValue(entry.creatinePerServing,servings);
+      if(grams==null)doses.creatineUnknown++;else doses.creatineGrams+=grams;
+    }
+    if(kinds.has("Протеин")){
+      doses.proteinServings+=servings||0;
+      const nut=macroSlots.map(i=>scaledValue(entry.perServing?.[i],servings));
+      if(nut[1]==null)doses.proteinUnknown++;else doses.proteinGrams+=nut[1];
+      const powder=scaledValue(entry.powderPerServing,servings);
+      if(powder==null)doses.powderUnknown++;else doses.powderGrams+=powder;
+      const linked=!!entry.mealId&&meals.some(m=>m.id===entry.mealId);
+      supplements.push({name:"Протеин",servings,nut,linked,mealId:entry.mealId||null});
+      if(!linked)add(nut);
+    }
+  }
+  return {...summary,doses,supplements};
+}
+function foodByDate(state){
+  const days=new Map();
+  function append(day,key,row){
+    if(!days.has(day))days.set(day,{meals:[],supps:[]});
+    days.get(day)[key].push(row);
+  }
+  (state.meals||[]).forEach((m,i)=>append(m.date.slice(0,10),"meals",m.id?m:{...m,id:"legacy-"+i+"-"+m.date}));
+  for(const entry of state.supps||[])append(entry.date.slice(0,10),"supps",entry);
+  return days;
+}
+function nutritionForDay(state,day){
+  const rows=foodByDate(state).get(day);
+  return dayIntake(rows?.meals||[],rows?.supps||[]);
 }
 function dailyWeights(state,scale,preferred){
   const days=new Map();
@@ -44,10 +115,10 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
     if(!days.has(day))days.set(day,{day,meals:0,kcal:0,unknown:0,workouts:0,sessions:[],sets:0,reps:0,volume:0,minutes:0,points:0,awards:[],exercises:new Map()});
     return days.get(day);
   }
-  for(const meal of state.meals||[]){
-    const day=meal.date.slice(0,10);if(day>end)continue;
-    const d=entry(day);d.meals++;
-    if(Number.isFinite(meal.nut?.[0])&&meal.nut[0]>=0&&Number(meal.amount)>0)d.kcal+=Number(meal.amount)*meal.nut[0]/100;else d.unknown++;
+  for(const [day,rows] of foodByDate(state)){
+    if(day>end)continue;
+    const d=entry(day),nutrition=dayIntake(rows.meals,rows.supps);
+    d.nutrition=nutrition;d.meals=nutrition.count;d.kcal=nutrition.known[0];d.unknown=nutrition.missing[0];
   }
   for(const w of state.workouts||[]){
     const day=w.date.slice(0,10);if(day>end)continue;
@@ -127,11 +198,16 @@ function diaryReport(state,scale,entity,anchor,period,today=reportDate(new Date(
   const sum=key=>rows.reduce((n,d)=>n+d[key],0);
   const balances=rows.filter(d=>d.balance!=null);
   const exerciseNames=[...new Set(rows.flatMap(d=>[...d.exercises.keys()]))].sort((a,b)=>a.localeCompare(b,"ru"));
-  return {start,end,rows,weights,latest:weightRows.at(-1),exerciseNames,workouts:sum("workouts"),sets:sum("sets"),reps:sum("reps"),volume:sum("volume"),
+  const nutrition=emptyIntake(),doses=emptyDoseTotals();
+  for(const row of rows)if(row.nutrition){
+    mergeIntake(nutrition,row.nutrition);
+    for(const field of Object.keys(doses))doses[field]+=row.nutrition.doses[field];
+  }
+  return {start,end,rows,weights,nutrition,doses,latest:weightRows.at(-1),exerciseNames,workouts:sum("workouts"),sets:sum("sets"),reps:sum("reps"),volume:sum("volume"),
     minutes:Math.round(sum("minutes")),meals:sum("meals"),kcal:Math.round(sum("kcal")),unknown:sum("unknown"),foodDays:rows.filter(d=>d.complete).length,
     balances,balance:balances.length?balances.reduce((n,d)=>n+d.balance,0):null,
     deficit:-balances.reduce((n,d)=>n+Math.min(0,d.balance),0),surplus:balances.reduce((n,d)=>n+Math.max(0,d.balance),0),
     periodPoints:sum("points"),points,achievements:[...achievements],week:weeks.get(monday(anchor))||{food:0,gym:0,activity:0,repeat:false,joint:false},
     elapsed:start>end?0:1+Math.round((Date.parse(end+"T12:00Z")-Date.parse(start+"T12:00Z"))/86400000)};
 }
-if(typeof module!=="undefined")module.exports={diaryReport,reportStart,maintenance,dailyWeights,autoEnergyRule};
+if(typeof module!=="undefined")module.exports={diaryReport,reportStart,maintenance,dailyWeights,autoEnergyRule,nutritionForDay,supplementStatus};

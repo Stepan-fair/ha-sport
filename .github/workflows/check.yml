@@ -22,8 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: python -m unittest discover -s sport_diary -p test_sport.py
-      - run: node --test sport_diary/logic.test.js sport_diary/session.test.js sport_diary/reports.test.js
+      - run: python -m unittest discover -s sport_diary -p 'test_*.py'
+      - run: node --test sport_diary/*.test.js
       - run: docker build -t sport-test sport_diary
       - name: Verify the complete food index and a barcode lookup without network
         run: |
@@ -52,3 +52,23 @@ jobs:
           done
           docker logs sport-test
           exit 1
+  cross-browser:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python sport_diary/package.py
+      - name: Install test-only Chromium and WebKit
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sport-browser" --no-save --package-lock=false playwright@1.62.1
+          "$RUNNER_TEMP/sport-browser/node_modules/.bin/playwright" install --with-deps chromium webkit
+      - name: Exercise desktop keyboard and emulated iPhone touch on private test data
+        run: NODE_PATH="$RUNNER_TEMP/sport-browser/node_modules" node sport_diary/browser_smoke.cjs
+      - name: Exercise the nutrition assistant with the test diary
+        run: NODE_PATH="$RUNNER_TEMP/sport-browser/node_modules" node sport_diary/browser_assistant.cjs

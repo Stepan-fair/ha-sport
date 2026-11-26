@@ -2,6 +2,7 @@
 import csv
 import gzip
 import io
+import json
 import logging
 import math
 import os
@@ -12,6 +13,7 @@ import ssl
 import tempfile
 import time
 from contextlib import closing
+from functools import lru_cache
 from http.client import HTTPException
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -22,7 +24,7 @@ ASSET = "https://github.com/TerjeRu/lethio-food-db/releases/download/off-derived
 FILENAME = "food-build19.sqlite"
 EXPECTED = 520432
 NUTRIENTS = ("kcal_100g", "protein_100g", "fat_100g", "carbs_100g")
-HEADERS = {"User-Agent": "SportDiary/0.5.7 (+https://github.com/Stepan-fair/ha-sport/issues)"}
+HEADERS = {"User-Agent": "SportDiary/0.6.0 (+https://github.com/Stepan-fair/ha-sport/issues)"}
 BARCODE = re.compile(r"[0-9]{8,14}")
 DOWNLOAD_ERRORS = (OSError, EOFError, HTTPException, ValueError, csv.Error, sqlite3.Error, zlib.error)
 
@@ -45,6 +47,90 @@ def failure(error):
 
 def fold(text):
     return text.casefold().replace("ё", "е")
+
+
+@lru_cache(maxsize=1)
+def word_groups():
+    groups = json.loads((Path(__file__).parent / "web" / "food-words.json").read_text(encoding="utf-8"))
+    return {word: group for group in groups for word in group}
+
+
+STOP_WORDS = {"и", "с", "со", "на", "по", "из", "для", "жирности"}
+UNITS = {"kg": "кг", "ml": "мл", "l": "л", "g": "г", "гр": "г"}
+
+
+def food_tokens(text):
+    def quantity(match):
+        amount, unit = match.groups()
+        unit = UNITS.get(unit, unit)
+        value = float(amount)
+        if unit in ("кг", "л"):
+            value = round(value * 1000, 3)
+            unit = "г" if unit == "кг" else "мл"
+        return f"{value:g}{unit}"
+
+    text = re.sub(r"(?<=\d),(?=\d)", ".", fold(text))
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*(%|кг|гр|мл|г|л|kg|ml|g|l)(?![^\W\d_])", quantity, text)
+    return [w for w in re.findall(r"\d+(?:\.\d+)?(?:%|г|мл)?|[^\W\d_]+", text) if w not in STOP_WORDS]
+
+
+def one_edit(a, b):
+    if min(len(a), len(b)) < 4 or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = next((index for index, (x, y) in enumerate(zip(a, b)) if x != y), len(a))
+    if len(a) != len(b):
+        return a[i:] == b[i+1:]
+    return a[i+1:] == b[i+1:] or (a[i:i+2] == b[i:i+2][::-1] and a[i+2:] == b[i+2:])
+
+
+def term_score(word, candidate):
+    if word == candidate:
+        return 6
+    if word[0].isdigit():
+        return 5 if candidate == word + "%" else 0
+    groups = word_groups()
+    if word in groups and candidate in groups[word]:
+        return 5
+    if len(word) >= 2 and candidate.startswith(word):
+        return 4
+    if one_edit(word, candidate):
+        return 2
+    if candidate in groups and one_edit(word, groups[candidate][0]):
+        return 1
+    return 0
+
+
+def search_cards(query, cards):
+    """Search profile-owned cards without exposing another profile's history."""
+    query = query.strip()
+    cards = [c for c in cards if isinstance(c, dict) and c.get("name") and not c.get("oneOff")]
+    if BARCODE.fullmatch(query):
+        return [card for card in cards if str(card.get("code", "")) == query]
+    words = food_tokens(query)
+    hits = []
+    for card in cards:
+        tokens = food_tokens(" ".join(str(card.get(k) or "") for k in ("name", "aliases", "quantity")))
+        scores = [max((term_score(word, token) for token in tokens), default=0) for word in words]
+        if scores and all(scores):
+            hits.append((sum(scores), card))
+    return [card for _, card in sorted(hits, key=lambda hit: hit[0], reverse=True)]
+
+
+def name_match(db, word):
+    groups = word_groups()
+    variants = set(groups.get(word, [word]))
+    if word not in groups and len(word) >= 4:
+        for alias, group in groups.items():
+            if one_edit(word, alias):
+                variants.update(group)
+        # A bounded vocabulary lookup also covers misspellings of unknown brands.
+        prefix = word[:2]
+        nearby = db.execute("SELECT term FROM catalogue_terms WHERE term >= ? AND term < ? LIMIT 600",
+                            (prefix, prefix + "\U0010ffff"))
+        variants.update(term for term, in nearby if one_edit(word, term))
+    return "(" + " OR ".join('"' + v + '"*' for v in sorted(variants)) + ")"
 
 
 def build(archive, target, expected=EXPECTED):
@@ -125,13 +211,29 @@ class Catalog:
             if BARCODE.fullmatch(query):
                 rows = db.execute("SELECT f.name,c.code,kcal,protein,fat,carbs FROM codes c JOIN foods f ON f.rowid=c.food WHERE c.code=?", (query,))
             else:
-                tokens = re.findall(r"[^\W_]+", fold(query))
-                match = " AND ".join('"' + word + '"' + ("" if word.isdigit() else "*") for word in tokens)
+                tokens = food_tokens(query)
+                numbers = [t for t in tokens if t[0].isdigit()]
+                words = [t for t in tokens if not t[0].isdigit()]
                 rows = []
-                if match:
-                    rows = db.execute("""SELECT f.name,f.code,kcal,protein,fat,carbs FROM names
-                                     JOIN foods f ON f.rowid=names.rowid WHERE names MATCH ?
-                                     ORDER BY f.local DESC, rank, f.rowid LIMIT 20""", (match,))
+                if tokens:
+                    db.execute("CREATE VIRTUAL TABLE temp.catalogue_terms USING fts5vocab(main, names, row)")
+                    if words:
+                        match = " AND ".join(name_match(db, word) for word in words)
+                    else:
+                        # Preserve searches such as "5%" on the existing raw-text FTS index.
+                        digits = re.findall(r"[0-9]+", query)
+                        match = " AND ".join('"' + part + '"*' for part in digits)
+                        if not match:
+                            return {"status": "ready", "products": []}
+                    sql = """SELECT f.name,f.code,kcal,protein,fat,carbs FROM names
+                             JOIN foods f ON f.rowid=names.rowid WHERE names MATCH ?"""
+                    if numbers:
+                        def matching_numbers(title):
+                            tokens = food_tokens(title)
+                            return all(any(term_score(n, token) for token in tokens) for n in numbers)
+                        db.create_function("matching_numbers", 1, matching_numbers)
+                        sql += " AND matching_numbers(f.name)"
+                    rows = db.execute(sql + " ORDER BY f.local DESC, rank, f.rowid LIMIT 20", (match,))
             products = [{"name": name, "code": code, "nut": values, "unit": "г", "catalogItem": True}
                         for name, code, *values in rows]
         return {"status": "ready", "products": products}

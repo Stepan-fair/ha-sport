@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Спорт · Ведение питания</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><div class="brand"><i aria-hidden="true"></i><strong>Спорт</strong><span>Ведение питания</span></div></header>
+  <p id="message" role="status"></p>
+  <article>
+    <h1>Питание за день</h1>
+    <label>День дневника<input id="day" type="date" required></label>
+    <div id="summary" aria-live="polite"></div>
+  </article>
+  <article>
+    <h2>Добавить приём</h2>
+    <form id="search-form">
+      <label>Поиск по названию или штрихкоду<input id="lookup" type="search" maxlength="100"></label>
+      <button>Найти продукт</button>
+    </form>
+    <div id="card-results" aria-live="polite"></div>
+    <form id="assistant-form">
+      <label>Продукт или блюдо<input id="name" required maxlength="240"></label>
+      <label>Дата приёма<input id="date" type="date" required></label>
+      <label>Фактическое время <span id="zone"></span><input id="time" type="time" required></label>
+      <label>Количество<input id="count" type="number" step="any" min="0.000001" required></label>
+      <label>Единица количества<select id="mode"><option value="base">Граммы / миллилитры</option><option value="serving">Порции</option><option value="package">Упаковки</option><option value="piece">Штуки</option></select></label>
+      <label>Масса или объём в<select id="unit"><option>г</option><option>мл</option></select></label>
+      <label id="size-label" hidden>Размер одной единицы в г/мл<input id="size" type="number" step="any" min="0.000001"></label>
+      <label id="piece-label" hidden>Название штуки<input id="piece" maxlength="50" placeholder="Например, яйцо"></label>
+      <label>КБЖУ указаны<select id="basis"><option value="100">На 100 г или 100 мл</option><option value="piece">На одну штуку</option></select></label>
+      <label id="piece-size-label" hidden>Размер одной штуки в г/мл<input id="piece-size" type="number" step="any" min="0.000001"></label>
+      <div>
+        <label>Ккал<input id="nut0" type="number" min="0" step="any" required></label>
+        <label>Белки, г<input id="nut1" type="number" min="0" step="any" required></label>
+        <label>Жиры, г<input id="nut2" type="number" min="0" step="any" required></label>
+        <label>Углеводы, г<input id="nut3" type="number" min="0" step="any" required></label>
+      </div>
+      <details><summary>Масло для этой порции</summary>
+        <label>Съедено масла, г<input id="oil" type="number" min="0" step="any"></label>
+        <p>КБЖУ масла на 100 г по этикетке</p>
+        <label>Ккал<input id="oil0" type="number" min="0" step="any"></label>
+        <label>Белки, г<input id="oil1" type="number" min="0" step="any"></label>
+        <label>Жиры, г<input id="oil2" type="number" min="0" step="any"></label>
+        <label>Углеводы, г<input id="oil3" type="number" min="0" step="any"></label>
+      </details>
+      <label>Что оценено приблизительно<input id="estimate" maxlength="500" placeholder="Например, масса блюда по фото"></label>
+      <label class="check"><input id="one-off" type="checkbox">Только в дневник</label>
+      <div class="actions"><button class="primary" id="save" hidden>Сохранить порцию</button></div>
+    </form>
+    <p id="receipt" role="status"></p>
+  </article>
+</main>
+<script src="food-words.js"></script>
+<script src="foods.js"></script>
+<script src="portions.js"></script>
+<script src="assistant.js"></script>
+</body>
+</html>

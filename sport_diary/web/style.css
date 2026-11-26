@@ -60,3 +60,106 @@ article{background:#fff;border:1px solid #d7dfd6;border-radius:20px;margin:16px 
 @media(max-width:550px){.reportMetrics{grid-template-columns:1fr 1fr}.reportDetail>div{padding:6px 9px 10px}.periodPick button{font-size:.9rem}.reportGraph figcaption small{font-weight:400}}
 
 .set{grid-template-columns:repeat(2,minmax(0,1fr))}.set>.check{min-height:44px;margin:0}.set>.check:last-child{grid-column:1/-1}
+
+/* The same four destinations stay within reach on a phone and next to the diary on a wide display. */
+:root {
+  --paper: #f5f5ee;
+  --pine: #173e32;
+  --heading: "Inter", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --nav-bg: #17382e;
+  --nav-text: #e0eae1;
+}
+main { min-height: 100vh; }
+#content { min-width: 0; }
+#message:empty { display: none; }
+.diaryNav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 5px;
+  margin: 12px 0;
+  background: var(--nav-bg);
+  border-radius: 18px;
+}
+.diaryNav button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 8px;
+  margin: 0;
+  color: var(--nav-text);
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+}
+.diaryNav [aria-current="page"] { background: #dff398; color: #173326; }
+.diaryNav button:focus-visible { outline: 2px solid white; outline-offset: -3px; }
+.diaryNav [aria-current="page"]:focus-visible { outline-color: #1e4c39; }
+.navIcon { display: inline-block; position: relative; flex: none; width: 20px; height: 20px; }
+.navIcon::before, .navIcon::after { content: ""; position: absolute; box-sizing: border-box; }
+.calendarIcon::before { inset: 3px 1px 1px; border: 2px solid; border-radius: 4px; }
+.calendarIcon::after { top: 8px; left: 3px; width: 14px; height: 2px; background: currentColor; }
+.workoutIcon::before { top: 9px; left: 1px; width: 18px; height: 2px; background: currentColor; }
+.workoutIcon::after { inset: 4px 3px; border-inline: 4px solid; border-radius: 2px; }
+.foodIcon::before { inset: 2px; border: 1.8px solid; border-radius: 50%; }
+.foodIcon::after { inset: 6px; border: 1px solid; border-radius: 50%; }
+.profileIcon::before { width: 8px; height: 8px; top: 1px; left: 6px; border: 1.8px solid; border-radius: 50%; }
+.profileIcon::after { width: 16px; height: 9px; bottom: 1px; left: 2px; border: 1.8px solid; border-radius: 9px 9px 3px 3px; }
+.sectionHead { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin: 18px 0; }
+.sectionHead h1 { margin: 0; }
+.dateButton { display: inline-flex; align-items: center; gap: 8px; border-radius: 24px; font-variant-numeric: tabular-nums; }
+.dateButton span { color: var(--muted); }
+article:has(#query) { background: #edf3e7; border-color: #c5d4bd; }
+article:has(#query) label:has(#query) { display: flex; width: 100%; margin-right: 0; }
+#query { width: 100%; min-height: 50px; padding-inline: 16px; }
+.foodMatch { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.foodMatch button { text-align: left; }
+.foodMatch small { overflow-wrap: anywhere; }
+#meal-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; align-items: end; }
+#meal-form > label { width: 100%; margin: 0; }
+#meal-form input:not([type=checkbox]), #meal-form select { width: 100%; }
+#meal-form > details, #portion-preview, #meal-form > .check { grid-column: 1 / -1; }
+#meal-form > details { padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; }
+#meal-form > details > summary { min-height: 44px; padding: 11px 0; font-weight: 650; }
+#meal-form > details[open] { padding-bottom: 12px; }
+#meal-form > details label { width: min(100%, 210px); vertical-align: top; }
+#meal-form > .primary { justify-self: start; min-width: 150px; }
+#portion-preview:not(:empty) { padding: 12px 16px; background: #edf4e9; border-radius: 12px; font-variant-numeric: tabular-nums; }
+#portion-preview p { margin: 3px 0; }
+#portion-preview strong { font-size: 1.15rem; }
+.hero .calendar { border: 1px solid #537463; }
+#content > .calendar { margin: 0 0 16px; }
+.page-title:focus:not(:focus-visible), .hero h1:focus:not(:focus-visible) { outline: none; }
+@media (min-width: 980px) {
+  main:has(.diaryNav) { display: grid; grid-template-columns: 190px minmax(0, 850px); grid-template-rows: auto auto 1fr; justify-content: center; align-content: start; gap: 0 30px; width: min(100%, 1160px); }
+  header { grid-column: 1 / -1; margin-bottom: 20px; }
+  .diaryNav { position: sticky; top: 18px; align-self: start; flex-direction: column; grid-area: 2 / 1 / span 3 / 2; padding: 8px; margin: 0; }
+  .diaryNav button { justify-content: flex-start; padding-inline: 14px; }
+  #message, #content { grid-column: 2; }
+  .sectionHead { margin-top: 2px; }
+}
+@media (max-width: 620px) {
+  main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .diaryNav { border-radius: 18px 18px 0 0; margin: 0; padding: 5px max(5px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(5px, env(safe-area-inset-left)); }
+  .diaryNav button { flex-direction: column; gap: 3px; min-height: 51px; font-size: .8rem; line-height: 1.15; padding: 5px 1px; }
+  .sectionHead { margin: 14px 0; }
+  input:not([type=checkbox]), select { font-size: 16px; }
+  .foodMatch { flex-wrap: wrap; }
+  #meal-form { gap: 10px; }
+  #meal-form > label:has(#mealdate), #meal-form > label:has(#product) { grid-column: 1 / -1; }
+  #meal-form > details label { width: 100%; margin-right: 0; }
+}
+.doseQuantity { grid-column:2; min-width:0; margin-top:.4rem; }
+.doseQuantity summary { cursor:pointer; font-size:.875rem; }
+[data-dose-controls] label { display:grid; gap:.25rem; min-height:0; margin:.65rem 0; }
+[data-dose-controls] input, [data-dose-controls] select { width:100%; min-width:0; }
+.calendar .doseMark { border-radius:2px; border:1px solid #78d5d2; }
+.calendar .doseMark.taken { background:#78d5d2; }
+.calendar .doseMark.recorded { transform:rotate(45deg); border-radius:0; }
+.calendar .doseMark.some { background:linear-gradient(90deg,#78d5d2 50%,transparent 50%); }
+.calendar .chosen .doseMark { border-color:#176e6c; }
+.calendar .chosen .doseMark.taken { background:#176e6c; }
+.calendar .chosen .doseMark.some { background:linear-gradient(90deg,#176e6c 50%,transparent 50%); }

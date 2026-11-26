@@ -26,3 +26,9 @@ configuration:
   shared_diaries:
     name: Legacy sharing option
     description: Older versions used this field. Use the first user's access switch above to configure sharing.
+  nutrition_assistant_user:
+    name: Food diary assistant · HA user ID
+    description: Optional. Copy the ID of a separate HA account. It can add meals and check nutrition totals in the selected diary.
+  nutrition_assistant_profile:
+    name: Food diary assistant · assigned profile
+    description: Choose person1 for the first diary or person2 for the second. Clear the assistant user ID to revoke access.

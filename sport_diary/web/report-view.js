@@ -3,6 +3,7 @@ let reportPeriod="week", reportExercise="";
 const reportPeriods={day:"День",week:"Неделя",month:"Месяц",year:"Год"};
 const tracks={strength:"Прогресс в упражнениях",rhythm:"Ритм дневника"};
 const numberRu=n=>Number(n).toLocaleString("ru-RU",{maximumFractionDigits:1});
+const doseNumber=n=>Number(n).toLocaleString("ru-RU",{maximumFractionDigits:4});
 const signed=n=>(n>0?"+":"")+numberRu(n);
 const shortDay=d=>d.slice(8,10)+"."+d.slice(5,7);
 const disclosure=(id,label,body)=>'<details class="reportDetail" data-disclosure="'+id+'"><summary>'+esc(label)+'</summary><div>'+body+'</div></details>';
@@ -52,6 +53,31 @@ function energyBody(r){
     graph(r.balances.map(d=>[d.day,d.balance]),"Баланс по заполненным дням","ккал")+
     (r.rows.length?disclosure("food-history","Расход и питание по дням",reportTable(["Дата","Съедено, ккал","Расход, ккал","Баланс"],r.rows.map(d=>[shortDay(d.day),!d.meals?"—":d.unknown?"неполные КБЖУ":numberRu(d.kcal),d.maintenance??"—",d.balance==null?"—":signed(d.balance)]))):"");
 }
+function nutritionEnergySummary(){
+  const r=diaryReport(state,scale,boundScale(),selectedDay,"day"),d=r.rows[0];
+  const balance=d?.balance;
+  const status=balance==null?"Пока нет оценки":balance<0?"Дефицит "+numberRu(-balance)+" ккал":balance>0?"Профицит "+numberRu(balance)+" ккал":"0 ккал";
+  let hint="";
+  if(d&&balance==null){
+    if(!d.complete)hint+=" Отметь заполненный день питания.";
+    if(d.unknown)hint+=" Для части порций неизвестна калорийность.";
+    if(d.maintenance==null)hint+=" Для оценки расхода проверь данные профиля или укажи расход вручную.";
+  }
+  return reportMetrics([["Расход за сутки",d?.maintenance==null?"—":"≈ "+numberRu(d.maintenance)+" ккал"],["Баланс дня",status]])+
+    (hint?'<p class="muted">'+esc(hint.trim())+'</p>':"");
+}
+function intakeBody(r){
+  const n=r.nutrition,d=r.doses;
+  const amount=(value,missing,unit)=>missing?(value?doseNumber(value)+" "+unit+" + неизвестно":"Неизвестно"):doseNumber(value)+" "+unit;
+  const macros=["Калории","Белки всего","Жиры","Углеводы"].map((label,i)=>[label,n.count?amount(n.known[i],n.missing[i],i===0?"ккал":"г"):"—"]);
+  return reportMetrics(macros)+reportMetrics([
+    ["Креатин",amount(d.creatineGrams,d.creatineUnknown,"г")],
+    ["Белок из протеина",amount(d.proteinGrams,d.proteinUnknown,"г")],
+    ["Порции креатина",amount(d.creatineServings,d.creatineUnknown,"порц.")],
+    ["Порции протеина",amount(d.proteinServings,d.proteinUnknown,"саше")],
+    ["Порошок протеина",amount(d.powderGrams,d.powderUnknown,"г")]])+
+    (d.proteinUnknown||d.creatineUnknown?'<p class="muted">Есть отметки без количества. Укажи принятые порции в календаре за эти дни.</p>':"");
+}
 function exerciseBody(r){
   if(!r.exerciseNames.length)return '<p>Пока нет выполненных подходов за выбранный период.</p>';
   const name=r.exerciseNames.includes(reportExercise)?reportExercise:r.exerciseNames[0];
@@ -75,6 +101,7 @@ function resultsPage(){
       graph(r.weights.map(w=>[w.day,w.kg]),"Последнее измерение каждого дня","кг")+
       (r.weights.length?disclosure("weighings","Точные значения",reportTable(["Дата","Вес, кг","Источник"],r.weights.map(w=>[dayLabel(w.day),numberRu(w.kg),w.source==="ha"?"Весы HA":"Дневник"]))):""))+
     disclosure("exercises","Тренировки и упражнения · "+r.sets+" подх.",reportMetrics([["Время",r.minutes+" мин"],["Повторы",r.reps],["Сумма вес × повторы",numberRu(r.volume)+" кг"]])+exerciseBody(r))+
+    disclosure("intake","Питание и добавки за период",intakeBody(r))+
     disclosure("energy","Баланс энергии · "+(r.balance==null?"нет оценки":"≈ "+signed(r.balance)+" ккал"),energyBody(r))+'</article>'+
     card("Баллы и достижения",rewardBody(r))+
     disclosure("workouts-list","История тренировок · "+history.length,history.map(w=>btn("history-"+esc(w.id),esc(w.date.replace("T"," ")))).join("")||"<p>В этом периоде занятий нет.</p>");

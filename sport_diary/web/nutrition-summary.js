@@ -1,0 +1,29 @@
+"use strict";
+// Invoked locally by the ingress server. Only the projected nutrition result goes to the assistant.
+const fs = require("node:fs");
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+let result;
+if (process.argv[2] === "portion") {
+  const {calculate} = require("./portions.js");
+  try {
+    result = calculate(input.card, {mode: input.mode, count: input.count, oil: input.oil});
+  } catch (error) {
+    result = {error: error.message};
+  }
+} else if (process.argv[2] === "day") {
+  const {diaryReport, nutritionForDay} = require("./reports.js");
+  const {state, day, entity, scale} = input;
+  const report = diaryReport(state, scale, entity, day, "day");
+  const row = report.rows.find(item => item.day === day);
+  const {totals, known, missing, count, supplements} = row?.nutrition || nutritionForDay(state, day);
+  result = {day, totals, known, missing, count, maintenance: row?.maintenance ?? null, complete: !!row?.complete};
+  const separate = supplements.filter(item => !item.linked);
+  if (separate.length) {
+    const protein = separate.map(item => item.nut[1]).filter(Number.isFinite);
+    result.supplementProtein = {grams: protein.length ? protein.reduce((sum, grams) => sum + grams, 0) : null,
+      incomplete: protein.length < separate.length};
+  }
+} else {
+  throw Error("Unknown calculation");
+}
+process.stdout.write(JSON.stringify(result));

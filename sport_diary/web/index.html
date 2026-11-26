@@ -1,3 +1,34 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#182723"><title>Спорт · Дневник</title><link rel="stylesheet" href="style.css"></head>
-<body><main><header><div class="brand"><i aria-hidden="true"></i><strong>Спорт</strong><span>Дневник</span></div><select id="who" aria-label="Профиль" hidden></select><span id="single-profile" hidden></span></header><nav aria-label="Разделы дневника"></nav><p id="message" role="status"></p><section id="content"></section></main><script src="catalog.js"></script><script src="logic.js"></script><script src="foods.js"></script><script src="reports.js"></script><script src="report-view.js"></script><script src="app.js"></script></body></html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17382e">
+  <title>Спорт · Дневник</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand"><i aria-hidden="true"></i><strong>Спорт</strong><span>Дневник</span></div>
+      <select id="who" aria-label="Профиль" hidden></select><span id="single-profile" hidden></span>
+    </header>
+    <nav class="diaryNav" aria-label="Разделы дневника">
+      <button type="button" data-tab="0" aria-current="page"><span class="navIcon calendarIcon" aria-hidden="true"></span>Сегодня</button>
+      <button type="button" data-tab="1"><span class="navIcon workoutIcon" aria-hidden="true"></span>Тренировка</button>
+      <button type="button" data-tab="2"><span class="navIcon foodIcon" aria-hidden="true"></span>Питание</button>
+      <button type="button" data-tab="3"><span class="navIcon profileIcon" aria-hidden="true"></span>Профиль</button>
+    </nav>
+    <p id="message" role="status"></p>
+    <section id="content"></section>
+  </main>
+  <script src="catalog.js"></script>
+  <script src="logic.js"></script>
+  <script src="food-words.js"></script>
+  <script src="foods.js"></script>
+  <script src="portions.js"></script>
+  <script src="reports.js"></script>
+  <script src="report-view.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

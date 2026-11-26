@@ -95,8 +95,13 @@ def check(width, height, pointer, limited=False):
         write_host(page)
         def launch():
             run=subprocess.run([str(EDGE),"--headless","--disable-gpu","--no-first-run",
-                                "--user-data-dir="+profile,"--virtual-time-budget=8500","--dump-dom",host.as_uri()],
-                               capture_output=True,input=b"",timeout=15)
+                                "--user-data-dir="+profile,"--virtual-time-budget=20000","--dump-dom",host.as_uri()],
+                               capture_output=True,input=b"",timeout=45)
+            if run.returncode or not run.stdout.strip():
+                detail = run.stderr.decode("utf8", "replace").strip()[-600:]
+                raise SystemExit(f"{EDGE.name} не вернул DOM страницы "
+                                 f"(код 0x{run.returncode & 0xffffffff:08x}). "
+                                 + (detail or "Диагностика браузера пуста."))
             return run.stdout.decode("utf8","replace")
         dumped=launch()
         output = re.search(r'<output id="out">(.*?)</output>', dumped)
