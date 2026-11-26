@@ -139,7 +139,7 @@ def build(archive, target, expected=EXPECTED):
         path = Path(staging) / "index.sqlite"
         with closing(sqlite3.connect(path)) as db, gzip.GzipFile(fileobj=archive) as raw, io.TextIOWrapper(raw, encoding="utf-8-sig", newline="") as stream:
             db.executescript("""
-                CREATE TABLE foods(name TEXT, code TEXT, kcal REAL, protein REAL, fat REAL, carbs REAL, local INTEGER);
+                CREATE TABLE foods(name TEXT, code TEXT, kcal REAL, protein REAL, fat REAL, carbs REAL, fiber REAL, local INTEGER);
                 CREATE TABLE codes(code TEXT PRIMARY KEY, food INTEGER) WITHOUT ROWID;
                 CREATE VIRTUAL TABLE names USING fts5(words, content='');
             """)
@@ -154,10 +154,10 @@ def build(archive, target, expected=EXPECTED):
                 name, brand = row["name"].strip(), row["brand"].strip()
                 title = f"{name} · {brand}" if brand and fold(brand) not in fold(name) else name
                 codes = list(dict.fromkeys(filter(BARCODE.fullmatch, [row["barcode"], *row["barcodes"].split(";")])))
-                nut = [float(row[key]) if row[key] else None for key in NUTRIENTS]
+                nut = [float(row[key]) if row.get(key) else None for key in (*NUTRIENTS, "fiber_100g")]
                 if not name or any(n is not None and (not math.isfinite(n) or n < 0) for n in nut):
                     raise ValueError("Invalid catalogue record")
-                db.execute("INSERT INTO foods VALUES (?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO foods VALUES (?,?,?,?,?,?,?,?)",
                            (title, codes[0] if codes else "", *nut, row["country"].lower() == "ru"))
                 db.executemany("INSERT INTO codes VALUES (?,?)", ((code, count) for code in codes))
                 db.execute("INSERT INTO names(rowid,words) VALUES (?,?)", (count, fold(title)))
@@ -168,8 +168,22 @@ def build(archive, target, expected=EXPECTED):
         os.replace(path, target)
 
 
+def has_fiber_column(db):
+    return any(column[1] == "fiber" for column in db.execute("PRAGMA table_info(foods)"))
+
+
+def current_index(path):
+    if not path.is_file():
+        return False
+    try:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            return has_fiber_column(db)
+    except sqlite3.Error:
+        return False
+
+
 def install(target):
-    if target.is_file():
+    if current_index(target):
         return
     with tempfile.TemporaryFile(dir=target.parent) as archive:
         with urlopen(Request(ASSET, headers=HEADERS), timeout=30) as response:
@@ -184,18 +198,27 @@ def install(target):
 class Catalog:
     def __init__(self, bundled, cached):
         self.bundled, self.cached = bundled, cached
+        self.prepared = None
         self.status = "loading"
         self.reason = ""
 
     def path(self):
+        if self.prepared and self.prepared.is_file():
+            return self.prepared
         return self.bundled if self.bundled.is_file() else self.cached
 
     def prepare(self):
+        for candidate in (self.bundled, self.cached):
+            if current_index(candidate):
+                self.prepared = candidate
+                return
         delay = 60
-        while not self.path().is_file():
+        while True:
             self.status = "loading"
             try:
                 install(self.cached)
+                self.prepared = self.cached
+                return
             except DOWNLOAD_ERRORS as error:
                 self.reason = failure(error)
                 self.status = "unavailable"
@@ -208,8 +231,10 @@ class Catalog:
         if not path.is_file():
             return {"status": self.status, "reason": self.reason, "products": []}
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            # Old indexes remain readable while the new index downloads and is built atomically.
+            fiber = "f.fiber" if has_fiber_column(db) else "NULL"
             if BARCODE.fullmatch(query):
-                rows = db.execute("SELECT f.name,c.code,kcal,protein,fat,carbs FROM codes c JOIN foods f ON f.rowid=c.food WHERE c.code=?", (query,))
+                rows = db.execute(f"SELECT f.name,c.code,{fiber},kcal,protein,fat,carbs FROM codes c JOIN foods f ON f.rowid=c.food WHERE c.code=?", (query,))
             else:
                 tokens = food_tokens(query)
                 numbers = [t for t in tokens if t[0].isdigit()]
@@ -225,7 +250,7 @@ class Catalog:
                         match = " AND ".join('"' + part + '"*' for part in digits)
                         if not match:
                             return {"status": "ready", "products": []}
-                    sql = """SELECT f.name,f.code,kcal,protein,fat,carbs FROM names
+                    sql = f"""SELECT f.name,f.code,{fiber},kcal,protein,fat,carbs FROM names
                              JOIN foods f ON f.rowid=names.rowid WHERE names MATCH ?"""
                     if numbers:
                         def matching_numbers(title):
@@ -234,8 +259,9 @@ class Catalog:
                         db.create_function("matching_numbers", 1, matching_numbers)
                         sql += " AND matching_numbers(f.name)"
                     rows = db.execute(sql + " ORDER BY f.local DESC, rank, f.rowid LIMIT 20", (match,))
-            products = [{"name": name, "code": code, "nut": values, "unit": "г", "catalogItem": True}
-                        for name, code, *values in rows]
+            products = [{"name": name, "code": code, "nut": values, "unit": "г", "catalogItem": True,
+                         **({"fiber": value} if value is not None else {})}
+                        for name, code, value, *values in rows]
         return {"status": "ready", "products": products}
 
 

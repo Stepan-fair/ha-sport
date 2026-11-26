@@ -19,6 +19,7 @@ if (process.argv[2] === "portion") {
   const row = report.rows.find(item => item.day === day);
   const {totals, known, missing, count, supplements} = row?.nutrition || nutritionForDay(state, day);
   result = {day, totals, known, missing, count, maintenance: row?.maintenance ?? null, balance: row?.balance ?? null, partialCalories: missing[0] > 0};
+  if(report.nutritionGoals?.fiber.knownCount)result.fiber=report.nutritionGoals.fiber;
   const separate = supplements.filter(item => !item.linked);
   if (separate.length) {
     const protein = separate.map(item => item.nut[1]).filter(Number.isFinite);

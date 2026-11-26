@@ -52,6 +52,26 @@ async function exercisePage(page, mobile) {
   assert.equal(await page.locator('#entries [data-action^="edit-meal-"]').count(), 1);
 }
 
+async function exerciseSleep(page, mobile) {
+  const activate = locator => mobile ? locator.tap() : locator.click();
+  await page.clock.setFixedTime("2026-01-15T12:00:00Z");
+  await page.reload();
+  const sleep = page.locator('[data-disclosure="health-sleep"]');
+  const summary = sleep.locator("summary");
+  await activate(summary);
+  await activate(sleep.getByRole("button", {name:"Записать сон", exact:true}));
+  const dialog = page.getByRole("dialog", {name:"Записать сон"});
+  await dialog.getByLabel("Часы", {exact:true}).fill("7");
+  await dialog.getByLabel("Минуты", {exact:true}).fill("35");
+  await activate(dialog.getByRole("button", {name:"Сохранить", exact:true}));
+  await dialog.waitFor({state:"hidden"});
+  await summary.getByText("7 ч 35 мин", {exact:true}).waitFor();
+  await page.reload();
+  await summary.getByText("7 ч 35 мин", {exact:true}).waitFor();
+  await activate(summary);
+  await sleep.getByText("Основной сон · 7 ч 35 мин", {exact:true}).waitFor();
+}
+
 async function run() {
   const preview = await readFile(path.join(__dirname, "../artifacts/sport/Sport-preview.html"));
   const server = createServer((req, res) => {
@@ -71,6 +91,7 @@ async function run() {
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(origin);
         await exercisePage(page, mobile);
+        await exerciseSleep(page, mobile);
         assert.deepEqual(errors, []);
         console.log(engine.name() + " · " + device + " · сохранение и повторное открытие прошли");
       } finally { await browser.close(); }

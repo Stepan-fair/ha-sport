@@ -58,7 +58,7 @@ test("Отчёт отделяет ноль на прошедшую дату, с�
   const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
   const ctx=vm.createContext({...require("./web/logic"),SportPortions:require("./web/portions"),
     state:{supps:[]},esc:String,btn:(a,b)=>'<button data-action="'+a+'">'+b+'</button>',dayLabel:String});
-  for(const name of ["reports","report-view"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",name+".js"),"utf8"),ctx);
+  for(const name of ["goals","health","reports","report-view"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",name+".js"),"utf8"),ctx);
   function render(s,today){
     ctx.state=s;ctx.report=diaryReport(s,[],null,date,"day",today);
     return vm.runInContext("intakeBody(report)",ctx);

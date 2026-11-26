@@ -29,7 +29,7 @@ const tabs=["Сегодня","Тренировка","Питание","Профи
 const goals=["Общая форма","Сила","Набор мышц","Снижение веса","Выносливость"];
 const options=(items,sel)=>items.map(x=>'<option '+(x===sel?'selected':'')+'>'+esc(x)+'</option>').join('');
 const field=(id,label,type,value,attrs="")=>'<label>'+label+'<input id="'+id+'" type="'+type+'" value="'+esc(value)+'" '+attrs+'></label>';
-function canMoveDate(id){return id==="mealdate"&&editingMeal||draft?.editBase&&(id==="start"||id==="end")}
+function canMoveDate(id){return id==="wdate"&&$("original-weight")?.value||id==="mealdate"&&editingMeal||draft?.editBase&&(id==="start"||id==="end")}
 const dt=(id,label,value=stamp(),required=true)=>{
  const limits=canMoveDate(id)?' max="'+local()+'"':' min="'+selectedDay+'T00:00" max="'+(id==="end"?shiftDay(selectedDay,1):selectedDay)+'T23:59"';
  return field(id,label,"datetime-local",value,(required?"required":"")+limits);
@@ -42,11 +42,21 @@ function initial(){
  return {profile:{height:"",age:"",sex:"",goal:goals[0],extra:[],week:Array(7).fill("Отдых"),minutes:45,step:2.5,equipment:[...starterEquipment],focus:"",fixed:false,supps:[]},weights:[],workouts:[],meals:[],supps:[]};
 }
 async function request(path,body){
+ if(body?.data&&path.startsWith("profile/")){
+   const data={...body.data};delete data.healthImported;
+   body={...body,data};
+ }
  const signal=typeof AbortSignal!=="undefined"&&AbortSignal.timeout?AbortSignal.timeout(12000):undefined;
  const r=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal}:{signal});
  if(!r.ok&&path.startsWith("food?")){
    const data=await r.json().catch(()=>({}));
    throw Object.assign(Error("Не удалось выполнить поиск."),{status:r.status,reason:data?.reason});
+ }
+ if(r.status===413)throw Object.assign(Error("Размер записи превышает допустимый. При импорте выбери файл за меньший период."),{status:413});
+ if(!r.ok&&path.startsWith("health/")){
+   const data=await r.json().catch(()=>({}));
+   const fallback=r.status===403?"Нет доступа к датчикам этого профиля.":"Не удалось обновить показания. Проверь настройки привязки.";
+   throw Object.assign(Error(typeof data.error==="string"?data.error:fallback),{status:r.status});
  }
  if(!r.ok&&path.startsWith("proposals/")){
    const data=await r.json().catch(()=>({}));
@@ -210,6 +220,10 @@ async function initialize(){
 }
 const pendingForms=new Map();
 let formBindings=[], renderedScope="";
+function healthContext(){
+ return {state,day:selectedDay,tab,settingsOpen,profile:people.find(p=>p.id===who),zone:diaryZone,
+   commit,request,render,note,reload:load,busy,setBusy(value){busy=value;$("who").disabled=value}};
+}
 function render(){
  const scope=JSON.stringify([who,tab,selectedDay]);
  const open=scope===renderedScope?Array.from(document.querySelectorAll("details[data-disclosure][open]"),d=>d.dataset.disclosure):[];
@@ -226,23 +240,26 @@ function render(){
      '<button type="button" class="dateButton" data-action="show-calendar" aria-label="Выбрать дату, '+esc(dayLabel(selectedDay))+'" aria-expanded="'+sectionCalendarOpen+'">'+esc(dayLabel(selectedDay))+' <span aria-hidden="true">▾</span></button></div>';
    if(sectionCalendarOpen)heading+=weekStrip();
  }
- $("content").innerHTML=heading+[today,workout,food,profile][tab]();
+ const healthPanels=SportHealthView.panels(healthContext());
+ $("content").innerHTML=heading+[today,workout,food,profile][tab]()+'<div id="health-panels" data-health-panels'+(healthPanels?'':' hidden')+'>'+healthPanels+'</div>';
  if(tab===2)refreshProposals();
  if(tab===0)updateSupplementButton();
  for(const d of document.querySelectorAll("details[data-disclosure]"))if(open.includes(d.dataset.disclosure))d.open=true;
  bindSaveButtons();
  updatePortionPreview();
  syncEnergyFields();
+ SportGoalsView.sync();
  for(const group of document.querySelectorAll(".equipmentGroup:has(.eqCount)"))updateEquipmentCount(group);
  updateFinishButton();
 }
 const formSelectors={
+ "save-protein-goal":"#protein-mode,#protein-goal,#regular-strength","save-creatine-goal":"#creatine-plan,#creatine-goal,#creatine-size",
  "save-energy":"#energy-mode,#daily-maint,#energy-factor","save-track":"#reward-track",
  profile:"#height,#birth,#sex,#goal,#focus,#minutes,#step,#fixed,#workingSets,#returning,[data-load-unit],[name=extra],[name=legday],[name=eq],[data-week],[data-step-name]",
- "save-supps":"[name=uses]",meal:"#meal-form input,#meal-form select",weight:"#kg,#wdate"
+ "save-supps":"[name=uses]",meal:"#meal-form input,#meal-form select",weight:"#kg,#wdate,#original-weight"
 };
 function formKey(action,name=""){
- const day=["meal","weight","save-energy"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
+ const day=["meal","weight","save-energy","save-protein-goal","save-creatine-goal"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
  return JSON.stringify([who,day,action,name]);
 }
 function rememberForm(key,patch){
@@ -284,11 +301,18 @@ function updateEquipmentCount(group){
  group.querySelector(".eqCount").textContent=group.querySelectorAll("input[name=eq]:checked").length+" из "+group.querySelectorAll("input[name=eq]").length;
 }
 function updateFormEdits(ev){
- if(["product","barcode","unit","nut0","nut1","nut2","nut3"].includes(ev.target.id)&&$("food-origin"))$("food-origin").value="Вручную";
+ if(ev.type==="change"&&ev.target.id==="original-weight"){
+   const row=ev.target.value?JSON.parse(ev.target.value):null;
+   $("kg").value=row?.kg??"";$("wdate").value=row?local(diaryInstant(row.date)).slice(0,16):stamp();
+   $("wdate").min=row?"":selectedDay+"T00:00";$("wdate").max=row?local():selectedDay+"T23:59";
+ }
+ if(["protein-mode","creatine-plan"].includes(ev.target.id))SportGoalsView.sync();
+ if(["product","barcode","unit","nut0","nut1","nut2","nut3","food-fiber"].includes(ev.target.id)&&$("food-origin"))$("food-origin").value="Вручную";
  if(ev.target.closest?.("#meal-form")){
    if(ev.target.id==="unit"&&ev.target.dataset.previousUnit!==ev.target.value){
      const perHundred=val("food-basis")==="100";
      if(perHundred)for(let i=0;i<4;i++)$("nut"+i).value="";
+     if(perHundred)$("food-fiber").value="";
      for(const mode of ["serving","package","piece"])$("size-"+mode).value="";
      if(val("portion-mode")==="base")$("amount").value="";
      if(val("usual-mode")==="base")$("usual-count").value="";
@@ -299,6 +323,7 @@ function updateFormEdits(ev){
    }
    if(ev.type==="change"&&ev.target.id==="portion-mode")$("amount").value="";
    if(ev.type==="change"&&ev.target.id==="food-basis"){
+     $("food-fiber").value="";
      for(let i=0;i<4;i++)$("nut"+i).value="";
      $("food-origin").value="Вручную";
      if(ev.target.value==="piece"){$("portion-mode").value="piece";$("amount").value=""}
@@ -403,6 +428,8 @@ function doseFields(name,entry,day,editing){
  const separate=editing&&state.supps.filter(row=>row.date.slice(0,10)===day&&row.names.some(n=>canonicalSupp(n)===name)).length>1;
  const quantity='<label>'+(protein?"Саше":"Порций")+(separate?" в этой отметке":" за весь день")+'<input name="servings" type="number" inputmode="decimal" step="any" min="0" value="'+esc(servings)+'"'+(pastUnknown?' placeholder="Количество неизвестно"':"")+'></label>';
  let details="";
+ const creatineSize=entry.creatinePerServing??(editing&&entry.servings!=null?3:SportGoals.creatineRule(state,day).serving);
+ if(!protein)details='<label>Креатин в одной порции, г<input name="creatinePerServing" type="number" step="any" min="0.01" value="'+esc(creatineSize)+'"></label>';
  if(protein){
    const meals=state.meals.filter(m=>m.date.slice(0,10)===day&&
      !state.supps.some(d=>d!==entry&&d.mealId===m.id&&d.names.some(n=>canonicalSupp(n)==="Протеин")));
@@ -415,11 +442,12 @@ function doseFields(name,entry,day,editing){
  const tip=separate?"В этот день есть другие отметки. Каждая входит в итог отдельно.":"Если принимал ещё раз, укажи общее количество за день.";
  const content='<div data-dose-controls="'+esc(name)+'">'+quantity+'<small>'+tip+'</small>'+details+'</div>';
  if(editing)return content;
- return '<details class="doseQuantity" data-disclosure="'+esc("quantity:"+name)+'"><summary>'+ (protein?"Первый Русский Протеин · 22 г белка в саше":"Креатин · 3 г в порции")+' · количество</summary>'+content+'</details>';
+ return '<details class="doseQuantity" data-disclosure="'+esc("quantity:"+name)+'"><summary>'+ (protein?"Первый Русский Протеин · 22 г белка в саше":"Креатин · "+numberRu(creatineSize)+" г в порции")+' · количество</summary>'+content+'</details>';
 }
 function doseAmounts(controls){
  const read=name=>controls.querySelector('[name="'+name+'"]')?.value||"";
  return {servings:read("servings"),powderPerServing:read("powderPerServing"),mealId:read("mealId"),
+   creatinePerServing:read("creatinePerServing"),
    perServing:controls.querySelector('[name="doseNut0"]')?[0,1,2,3].map(i=>read("doseNut"+i)):null};
 }
 function doseSnapshot(name,values,previous){
@@ -427,7 +455,7 @@ function doseSnapshot(name,values,previous){
  const facts=recordedDose(name,Number(values.servings),values.powderPerServing===""?null:Number(values.powderPerServing),values.mealId);
  if(name==="Протеин"&&Array.isArray(previous?.perServing))facts.perServing=[...previous.perServing];
  if(name==="Протеин"&&values.perServing)facts.perServing=SportPortions.nutrients(values.perServing);
- if(name==="Креатин"&&Number.isFinite(previous?.creatinePerServing))facts.creatinePerServing=previous.creatinePerServing;
+ if(name==="Креатин")facts.creatinePerServing=SportPortions.number(values.creatinePerServing||previous?.creatinePerServing||3,"Креатин в одной порции");
  return facts;
 }
 document.addEventListener("input",event=>{
@@ -442,6 +470,7 @@ function planPanel(day){
  const moves=state.suppMoves?.[day]||{};
  const snapshot=state.suppPlans?.[day],unknownPlan=loggedByName.size&&!Array.isArray(snapshot);
  const names=[...new Set([...(Array.isArray(snapshot)?snapshot:state.profile.supps).map(canonicalSupp),...loggedByName.keys()])];
+ if(SportGoals.creatineRule(state,day).enabled&&!names.includes("Креатин"))names.push("Креатин");
  const rows=names.map(name=>{
  const [planned,hint]=schedule(name,slot),entry=loggedByName.get(name),move=moves[name];
  const clock=entry?entry.date.slice(11,16):move?.clock;
@@ -475,7 +504,7 @@ function weekStrip(){
  let hasLegacy=false;
  const days=Array.from({length:count},(_,i)=>{
  const d=new Date(first);d.setDate(first.getDate()+i);const day=reportDate(d);
- const rows=foods.get(day),hasMeal=rows&&dayIntake(rows.meals,rows.supps).count>0;
+ const rows=foods.get(day),hasMeal=rows&&SportPortions.recordedFoodCount(rows.meals)>0;
  const activity=trainingStatus(day,currentDay,workouts.has(day),open.has(day));
  const gymClass={"Тренировка":"gym","В процессе":"gym active","Отдых":"gym restDay"}[activity];
  const status=supplementStatus(state,day,currentDay),symbol={"Принял":"taken","Принял часть":"some","Не принимал":"none","Есть отметки":"recorded"}[status];
@@ -613,8 +642,12 @@ function summary(w,pending=false){
  const feedback=ready.length?"С запасом выполнены все подходы: "+ready.join(", ")+".":"";
  const missed=w.exercises.some(e=>e.sets.some(t=>!t.done)||e.sets.filter(t=>t.done&&!t.warmup).length<(e.plannedSets||0));
  const energy=t.estimated!=null?(kg?'≈ ':'')+t.estimated+' ккал за занятие':t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':kg?'Для этой активности введи фактические ккал с консоли, чтобы учесть расход.':'Для оценки калорий нужен вес на начало занятия.';
- const energyNote=t.estimated==null?"":'<p class="muted">Здесь указан полный расход за занятие. В автоматическом отчёте из него вычитается обычный расход за те же минуты, и остаток прибавляется к расходу за сутки.</p>';
- return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+energy+' · вес '+(kg??'—')+' кг</p>'+energyNote+'<p class="muted">За день с записанной тренировкой · +8 баллов. Все начисления доступны в профиле.</p>'+cardio+(pending?"":btn('edit-workout-'+esc(w.id),'Исправить тренировку')+btn('delete-workout-'+esc(w.id),'Удалить тренировку'))+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
+ const linked=SportHealth.linkedWorkout(state,w);
+ const watch=linked?reportMetrics([["Активные ккал часов",linked.activeKcal==null?"—":numberRu(linked.activeKcal)+" ккал"],
+   ["Полные ккал часов",linked.totalKcal==null?"—":numberRu(linked.totalKcal)+" ккал"],
+   ["Средний пульс",linked.avgPulse==null?"—":numberRu(linked.avgPulse)+" уд/мин"]]):"";
+ const energyNote=t.estimated==null?"":'<p class="muted">Показана оценка полного расхода за занятие. В суточном отчёте выбранный источник указан рядом с расходом.</p>';
+ return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+energy+' · вес '+(kg??'—')+' кг</p>' +energyNote+watch+'<p class="muted">За день с записанной тренировкой · +8 баллов. Все начисления доступны в профиле.</p>'+cardio+(pending?"":btn('edit-workout-'+esc(w.id),'Исправить тренировку')+btn('delete-workout-'+esc(w.id),'Удалить тренировку'))+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
 }
 const mealLabels=["Ккал","Белки","Жиры","Углеводы"];
 const portionModes={base:"Граммы / миллилитры",serving:"Порции",package:"Упаковки",piece:"По штукам"};
@@ -635,8 +668,10 @@ function readFoodCard(){
    if(raw)sizes[mode]=SportPortions.number(raw,"Размер единицы");
  }
  const nut=SportPortions.nutrients(mealLabels.map((_,i)=>val("nut"+i)),basis==="piece"&&!editingMeal);
+ const fiber=val("food-fiber").trim();
  if(basis==="piece"&&!pieceName)throw Error("Укажи название штуки для этой этикетки.");
  return {name,code,unit:val("unit"),nut,origin:val("food-origin"),...(basis==="piece"?{basis}:{}),
+   ...(fiber?{fiber:SportPortions.number(fiber,"Клетчатка",true)}:{}),
    ...(val("product-kind")?{productKind:val("product-kind")}:{ }),
    ...(pieceName?{pieceName}:{}),...(Object.keys(sizes).length?{sizes}:{})};
 }
@@ -645,7 +680,7 @@ function currentPortion(card){
  const hasOil=grams!==""&&SportPortions.number(grams,"Масло, г",true)>0;
  if(!grams&&oilLabel.some(Boolean))throw Error("Укажи, сколько граммов масла пришлось на эту порцию.");
  const original=editingMeal&&state.meals.find(m=>m.id===editingMeal);
- const result=SportPortions.calculate(card,{mode:val("portion-mode"),count:val("amount"),allowPartial:!!original,original,...(hasOil?{oil:{grams,nut:oilLabel}}:{})});
+ const result=SportPortions.calculate(card,{mode:val("portion-mode"),count:val("amount"),allowPartial:!!original,original,...(hasOil?{oil:{grams,nut:oilLabel,fiber:val("oil-fiber")}}:{})});
  if(card.productKind){
    const info={};
    for(const key of ["servings","powderGrams","proteinGrams"]){
@@ -671,6 +706,7 @@ function readPersonalCard(){
 }
 function cardFields(card){
  return [card.name,card.code||"",card.unit,card.nut,card.basis||"100",card.pieceName||"",card.productKind||"",
+   card.fiber??null,
    ...["serving","package","piece"].map(mode=>card.sizes?.[mode]??null),
    card.preferred?.mode||"",card.preferred?.count??null];
 }
@@ -701,7 +737,7 @@ function updatePortionPreview(){
    const card=readFoodCard(),portion=currentPortion(card);
    const quantity=SportPortions.describe(portion.portion.mode,portion.portion.count,card,portion.amount);
    const oil=portion.oil?"<p>Основа · "+showMacros(portion.baseTotals)+"</p><p>Масло · "+numberRu(portion.oil.grams)+" г · "+showMacros(portion.oil.nut.map(v=>v==null?null:v*portion.oil.grams/100))+"</p>":"";
-   panel.innerHTML="<p><strong>"+esc(quantity)+"</strong></p>"+oil+"<p>В порции · "+showMacros(portion.totals)+"</p>";
+   panel.innerHTML="<p><strong>"+esc(quantity)+"</strong></p>"+oil+"<p>В порции · "+showMacros(portion.totals)+(portion.fiberTotal!=null?" · клетчатка "+numberRu(portion.fiberTotal)+" г":"")+"</p>";
  }catch(e){panel.textContent=e.message}
 }
 function selectFoodCard(item,repeat=false){
@@ -710,6 +746,7 @@ function selectFoodCard(item,repeat=false){
  const count=pref?.count??(repeat?item.amount:!pref&&mode==="base"?100:"");
  const usual=repeat?(state.products||[]).find(p=>SportPortions.sameProduct(p,item))?.preferred:item.preferred;
  const values={product:item.name,barcode:item.code||"",unit:item.unit,"food-basis":item.basis||"100","piece-name":item.pieceName||"",
+   "food-fiber":item.fiber??"","oil-fiber":repeat?item.oil?.fiber??"":"",
    "product-kind":item.productKind||"","protein-servings":repeat?item.proteinDetails?.servings??"":"",
    "protein-powderGrams":repeat?item.proteinDetails?.powderGrams??"":"","protein-proteinGrams":repeat?item.proteinDetails?.proteinGrams??"":"", "protein-dose":"",
    "portion-mode":mode,amount:count,"usual-mode":usual?.mode||"","usual-count":usual?.count??"",
@@ -731,6 +768,8 @@ function mealForm(meal){
  if(meal?.portion?.size && meal.portion.mode!=="base")sizes[meal.portion.mode]=meal.portion.size;
  return '<div id="meal-form"><input type="hidden" id="food-origin" value="'+esc(card.origin||(meal?"Из дневника":"Вручную"))+'">'+
    dt("mealdate","Когда",meal?.date||stamp())+field("product","Продукт или блюдо","text",card.name||"",'maxlength="150"')+
+   field("meal-group","Приём пищи, по желанию","text",meal?.mealGroup||"",'list="meal-groups" maxlength="80" placeholder="Например, завтрак"')+
+   '<datalist id="meal-groups">'+[...new Set(["Завтрак","Обед","Ужин","Перекус",...state.meals.filter(m=>m.date.startsWith(selectedDay)&&m.mealGroup).map(m=>m.mealGroup)])].map(g=>'<option value="'+esc(g)+'"></option>').join("")+'</datalist>'+
    foodSelect("portion-mode","Как указать количество",portionModes,meal?.portion?.mode||"base")+
    decimalField("amount","Съедено",meal?.portion?.count??meal?.amount??100)+
    foodSelect("product-kind","Вид продукта",proteinKinds,card.productKind||"")+
@@ -750,6 +789,7 @@ function mealForm(meal){
    '<p id="food-unit-note" class="muted" aria-live="polite" hidden></p>'+
    foodSelect("food-basis","Основание КБЖУ",{"100":"На 100 г / 100 мл",piece:"На одну штуку без добавленного масла"},card.basis||"100")+
    mealLabels.map((n,i)=>decimalField("nut"+i,n,card.nut?.[i])).join("")+
+   decimalField("food-fiber","Клетчатка на выбранное основание, г (если известна)",card.fiber)+
    decimalField("size-serving","Размер порции в г/мл",sizes.serving)+decimalField("size-package","Размер упаковки в г/мл",sizes.package)+
    field("piece-name","Название штуки, например яйцо","text",card.pieceName||"",'maxlength="50"')+
    decimalField("size-piece","Съедобный размер одной штуки в г/мл, если известен",sizes.piece)+
@@ -757,6 +797,7 @@ function mealForm(meal){
    '<details id="oil-options" data-disclosure="food-oil"'+(meal?.oil?' open':'')+'><summary>Масло для жарки</summary>'+
    '<p>Добавь только долю масла, которую съел. Основа блюда должна быть без этого масла.</p>'+
    decimalField("oil-grams","Масло в съеденной порции, г",meal?.oil?.grams)+'<p>По этикетке масла на 100 г</p>'+
+   decimalField("oil-fiber","Клетчатка масла, г на 100 г (если известна)",meal?.oil?.fiber)+
    mealLabels.map((n,i)=>decimalField("oil-nut"+i,n,meal?.oil?.nut[i])).join("")+'</details>'+
    '<details id="card-options" data-disclosure="food-card"><summary>Настроить личную карточку</summary>'+
    foodSelect("usual-mode","Обычная единица",{"":"Без предпочтения",...portionModes},prefs?.mode||"")+decimalField("usual-count","Обычное количество (по желанию)",prefs?.count)+
@@ -791,6 +832,8 @@ function proposalDetails(p){
    info+=change("Дата и время",before.date.replace("T"," "),after.date.replace("T"," "));
    if("count" in p.changes)info+=change("Количество",mealQuantityText(before),mealQuantityText(after));
    if("nut" in p.changes)info+=change("КБЖУ этикетки",showMacros(before.nut),showMacros(after.nut));
+   if("fiber" in p.changes||before.fiberTotal!==after.fiberTotal)info+=change("Клетчатка порции, г",before.fiberTotal??"неизвестно",after.fiberTotal??"неизвестно");
+   if("mealGroup" in p.changes)info+=change("Приём пищи",before.mealGroup||"По времени",after.mealGroup||"По времени");
    if("oil" in p.changes){
      const oil=item=>item.oil?numberRu(item.oil.grams)+" г · "+showMacros(item.oil.nut)+" на 100 г":"Без масла";
      info+=change("Масло",oil(before),oil(after));
@@ -896,6 +939,7 @@ function mealList(day){
  const macros=m.map(x=>{
    const values=SportPortions.mealNutrients(x);
    const detail=(x.oil?'<p>В том числе масло · '+numberRu(x.oil.grams)+' г · '+showMacros(macroUnits.map((_,i)=>scaledValue(x.oil.nut?.[i],x.oil.grams/100)))+'</p>':'')+
+     (x.mealGroup?'<p>Приём пищи · '+esc(x.mealGroup)+'</p>':'')+(x.fiberTotal!=null?'<p>Клетчатка · '+numberRu(x.fiberTotal)+' г</p>':'')+
      (x.estimateNote?'<p>Приблизительно · '+esc(x.estimateNote)+'</p>':'');
    return '<p>'+esc(x.date.slice(11))+' · '+esc(x.name)+' · '+esc(mealQuantityText(x))+' · '+(Number.isFinite(values[0])?numberRu(values[0]):"—")+' ккал'+(x.oneOff?' · Только в дневник':'')+'</p>'+
      '<details><summary>КБЖУ порции</summary><p>'+showMacros(values)+'</p>'+detail+'<p>Источник · '+esc(x.origin||"Из дневника")+'</p></details>'+btn("edit-meal-"+esc(x.id),"Исправить")+btn("remove-meal-"+esc(x.id),"Удалить");
@@ -938,11 +982,13 @@ function profile(){
  const conflict=people.find(p=>p.id===who)?.scaleConflict;
  const scaleHelp=conflict?"Обоим профилям назначена одна сущность. Выбери два разных персональных датчика, которые HA наполняет по диапазонам веса.":linked?(scale.some(w=>w.entity===entity)?"Вес подставляется автоматически. Более свежий ручной замер тоже учитывается.":"Пока нет показаний от этих весов. Проверь значение и единицу массы у сущности в HA."):"Привязать весы можно в Настройки HA → Приложения → Спорт → Конфигурация.";
  const binding='<div class="scaleBinding"><strong>Весы Home Assistant</strong><p>'+scaleStatus+'</p><small>'+scaleHelp+'</small>'+btn('scale-features','Проверить датчики весов в HA')+'<p id="scale-features" role="status"></p>'+disclosure("mi-scale-guide","Какие данные даёт Mi Scale V2",'<p><b>Stabilized weight</b> — устойчивый вес. Именно его удобно распределять в HA по личным диапазонам. Быстрого взвешивания для этого достаточно.</p><p><b>Weight и impedance</b> — вес и сопротивление в омах от одного полного измерения. Весы должны успеть измерить сопротивление. Проценты жира и мышц были бы отдельными оценками.</p><p><b>Non-stabilized weight</b> — промежуточные значения, <b>weight removed</b> — снятие нагрузки, <b>RSSI</b> — качество сигнала Bluetooth.</p><a href="https://custom-components.github.io/ble_monitor/by_property#stabilized-weight" target="_blank" rel="noopener noreferrer">Описание Passive BLE Monitor ↗</a>')+'</div>';
- const manual=field("kg","Вес, кг","number","","step=any")+dt("wdate","Дата взвешивания")+btn("weight","Записать вес");
+ const samples=state.weights.filter(w=>w.source==="manual"&&validBodyWeight(w.kg)&&Number.isFinite(diaryInstant(w.date).getTime())&&local(diaryInstant(w.date)).startsWith(selectedDay));
+ const manual=(samples.length?'<label>Ручное взвешивание<select id="original-weight"><option value="">Новый замер</option>'+samples.map(w=>'<option value="'+esc(JSON.stringify({date:w.date,kg:w.kg}))+'">'+esc("Исправить · "+local(diaryInstant(w.date)).slice(11,16)+" · "+numberRu(w.kg)+" кг")+'</option>').join("")+'</select></label>':"")+
+   field("kg","Вес, кг","number","","step=any")+dt("wdate","Дата взвешивания")+btn("weight","Сохранить замер");
  const manualForm=linked?'<details class="equipmentGroup" data-disclosure="manual-weight"><summary>Внести отдельный замер вручную</summary><div>'+manual+'</div></details>':manual;
  return btn("results","← К результатам")+'<section class="profileEditor">'+card("Данные профиля",field("height","Рост, см","number",p.height)+field("birth","Дата рождения","date",p.birth||"")+'<label>Пол<select id="sex">'+options(["","Мужской","Женский"],p.sex)+'</select></label><p>'+metrics+'</p><p>Вес · '+(kg||"—")+' кг · '+esc(source)+'</p>'+binding+manualForm)+
  card("Настройки плана",'<label>Основная цель<select id="goal">'+options(goals,p.goal)+'</select></label><div>Дополнительные цели</div>'+goals.map(n=>check(n,'name="extra" value="'+esc(n)+'"',p.extra.includes(n))).join('')+'<div><label>Приоритет<select id="focus">'+options(["","Ноги","Спина","Грудь","Плечи","Руки"],priorityGroup(p))+'</select></label></div>'+field("minutes","Длительность, мин","number",p.minutes)+field("step","Шаг прибавки, кг","number",p.step,"step=any")+check("Оставлять пропущенный день ног на том же дне недели (иначе — продолжить очередь в ближайшую тренировку)",'id="fixed"',p.fixed)+'<label>Рабочие подходы<select id="workingSets"><option value="0">По длительности и истории</option>'+[2,3,4].map(n=>'<option value="'+n+'" '+(Number(p.workingSets)===n?'selected':'')+'>'+n+'</option>').join('')+'</select></label>'+check("Возвращаюсь после перерыва · без автоматической прибавки",'id="returning"',p.returning)+'<details class="equipmentGroup weekPlan"><summary>Недельное расписание</summary><div>'+[1,2,3,4,5,6,0].map(i=>'<label>'+['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][i]+'<select data-week="'+i+'" id="week'+i+'">'+options(["Отдых",...Object.keys(trainingSlots)],p.week?.[i]||'Отдых')+'</select></label>').join('')+'</div></details><div>Дни с акцентом на ноги</div>'+["Вс","Пн","Вт","Ср","Чт","Пт","Сб"].map((n,i)=>check(n,'name="legday" value="'+i+'"',(p.legDays||[2]).includes(i))).join("")+exercisePreferences(p))+'<div class="profileSaveBar">'+btn("profile","Сохранить профиль",true)+'</div></section>'+
- reportSettings()+supplementPreferences(p);
+ SportGoalsView.settings(state,selectedDay)+reportSettings()+supplementPreferences(p);
 }
 const val=id=>$(id).value;
 const selected=n=>Array.from(document.querySelectorAll('input[name="'+n+'"]:checked:not(:disabled)'),x=>x.value);
@@ -962,6 +1008,12 @@ document.addEventListener("change",ev=>{
  if(ev.target.id==="energy-mode")syncEnergyFields();
 });
 async function action(a,historyIndex){
+ if(a==="save-protein-goal"){
+   await saveForm(a,s=>SportGoals.setProtein(s,selectedDay,val("protein-mode"),Number(val("protein-goal")),$("regular-strength").checked));render();return;
+ }
+ if(a==="save-creatine-goal"){
+   await saveForm(a,s=>SportGoals.setCreatine(s,selectedDay,$("creatine-plan").checked,Number(val("creatine-goal")),Number(val("creatine-size"))));render();return;
+ }
  if(a.startsWith("approve-proposal-")||a.startsWith("reject-proposal-")){
    const approve=a.startsWith("approve-proposal-"),id=a.slice(approve?17:16);
    await request("proposals/"+who,{id,decision:approve?"approve":"reject"});
@@ -1165,7 +1217,7 @@ async function action(a,historyIndex){
  }
  if(a.startsWith("history-")){const w=state.workouts.find(w=>w.id===a.slice(8));selectDay(w.date.slice(0,10));tab=1}
  if(a==="weight"){const kg=Number(val("kg")),date=diaryInstant(when("wdate")).toISOString();if(!(kg>0&&kg<700))throw Error("Проверь вес.");await saveForm("weight",s=>{
-   s.weights=s.weights.filter(w=>!(w.source==="manual"&&Date.parse(w.date)===Date.parse(date)));s.weights.push({kg,date,source:"manual"})
+   SportGoals.saveWeight(s,$("original-weight")?.value?JSON.parse(val("original-weight")):null,date,kg)
  })}
  if(a==="profile"){const minutes=Number(val("minutes")),step=Number(val("step"));if(val("birth")&&Date.parse(val("birth"))>Date.now()||val("height")&&!(Number(val("height"))>0&&Number(val("height"))<300))throw Error("Проверь рост и дату рождения.");if(!Number.isFinite(minutes)||!Number.isFinite(step)||minutes<10||minutes>240||step<=0||step>20)throw Error("Проверь оборудование, длительность и шаг прибавки.");const exerciseSteps={};for(const f of document.querySelectorAll("[data-step-name]"))if(f.value!==""){if(!f.checkValidity())throw Error("Проверь шаг веса у упражнения.");exerciseSteps[f.dataset.stepName]=Number(f.value)}
    const week=Array.from({length:7},(_,i)=>val("week"+i));
@@ -1177,6 +1229,7 @@ async function action(a,historyIndex){
        if(!Object.keys(rules).some(key=>key<selectedDay)&&prior.birth&&prior.height&&prior.sex)rules["0001-01-01"]=prior;
        rules[selectedDay]={mode:"auto",birth:s.profile.birth,age:Number(s.profile.age)||null,sex:s.profile.sex,height:Number(s.profile.height),factor:prior.factor};
      }
+     SportGoals.profileChanged(s,selectedDay);
    })}
  if(a.startsWith("edit-dose-")){openMove(canonicalSupp(decodeURIComponent(a.slice(10))),null,false,true,historyIndex);return}
  if(a.startsWith("undo-supp-")){
@@ -1223,6 +1276,8 @@ async function action(a,historyIndex){
    const intake=currentPortion(card),id=editingMeal||newEntryId(),date=when("mealdate"),estimateNote=val("estimate-note").trim();
    const old=editingMeal&&state.meals.find(m=>m.id===id);
    const portion={...old,...card,...intake,id,date};
+   if(val("meal-group").trim())portion.mealGroup=val("meal-group").trim();else delete portion.mealGroup;
+   if(card.fiber==null)delete portion.fiber;
    for(const key of ["sizes","basis","pieceName","productKind"])if(!(key in card))delete portion[key];
    if(!intake.proteinDetails)delete portion.proteinDetails;
    const linked=card.productKind?(val("protein-dose")===""?null:Number(val("protein-dose"))):old?.productKind?null:undefined;
@@ -1271,7 +1326,7 @@ document.addEventListener("input",ev=>{const x=ev.target;if(!draft||tab!==1)retu
  if(draft.timing&&changedBudget&&$("workoutBudget"))$("workoutBudget").outerHTML=planOverview(draft);
  if((x.dataset.k==="done"||changedBudget)&&$("setMeter"))$("setMeter").outerHTML=progressMeter();
  if(x.id==="start"&&(x.value.startsWith(selectedDay)||canMoveDate("start")))draft.date=x.value;if(x.id==="end")draft.end=x.value;updateFinishButton();retain()});
-document.addEventListener("click",async ev=>{const b=ev.target.closest("button");if(!b||b.hidden||b.classList.contains("retryPhoto")||busy||!state||b.dataset.move||b.hasAttribute("data-reorder")||b.closest("dialog"))return;note("");
+document.addEventListener("click",async ev=>{const b=ev.target.closest("button");if(!b||(!b.dataset.action&&b.dataset.tab===undefined)||b.hidden||b.classList.contains("retryPhoto")||busy||!state||b.dataset.move||b.hasAttribute("data-reorder")||b.closest("dialog"))return;note("");
  if(b.dataset.tab!==undefined){
    if(!state)return;
    const next=Number(b.dataset.tab);
@@ -1283,7 +1338,7 @@ document.addEventListener("click",async ev=>{const b=ev.target.closest("button")
    window.scrollTo(0,0);
    return
  }
- busy=true;$("who").disabled=true;b.setAttribute("aria-busy","true");b.parentElement.querySelector(".saveError")?.remove();try{if(b.dataset.action==="finish"&&Array.from(document.querySelectorAll("#content input")).some(i=>!i.reportValidity()))return;await action(b.dataset.action,b.closest("[data-history-index]")?.dataset.historyIndex)}catch(e){
+ busy=true;$("who").disabled=true;b.setAttribute("aria-busy","true");b.parentElement.querySelector(".saveError")?.remove();try{if(b.dataset.action==="finish"&&Array.from(document.querySelectorAll("#content input")).some(i=>!i.closest("[data-health-panels]")&&!i.reportValidity()))return;await action(b.dataset.action,b.closest("[data-history-index]")?.dataset.historyIndex)}catch(e){
    note(e.message);
    if(formBindings.some(f=>f.button===b)||["finish","save-food-card"].includes(b.dataset.action)){
      const message=document.createElement("p");message.className="saveError";message.textContent=e.message;b.after(message);
@@ -1308,6 +1363,15 @@ function watchCalendarDay(){
  refresh();
 }
 function renderDiaryUpdate(){
+ if(tab===2||tab===1&&draft){
+   const panel=$("health-panels");
+   if(panel){
+     const expanded=new Set(Array.from(panel.querySelectorAll?.("details[open]")||[],d=>d.dataset.disclosure));
+     panel.innerHTML=SportHealthView.panels(healthContext());
+     panel.hidden=!panel.innerHTML;
+     for(const el of panel.querySelectorAll?.("details[data-disclosure]")||[])el.open=expanded.has(el.dataset.disclosure);
+   }
+ }
  if(tab===2){
    // Leave the form, its caret and any in-flight catalogue search attached to the DOM.
    $("food-diary").innerHTML=foodDiary();
@@ -1352,8 +1416,9 @@ async function recoverDiary(){
    }
    const result=await request("profile/"+user).catch(()=>null);
    if(!ready())return;
-   if(result&&result.rev>rev){state=unpack(result);rev=result.rev}
-   if(rev!==before)renderDiaryUpdate();
+   const changedSensors=result&&result.rev>=rev&&JSON.stringify(result.data?.healthImported)!==JSON.stringify(state.healthImported);
+   if(result&&(result.rev>rev||changedSensors)){state=unpack(result);rev=result.rev}
+   if(rev!==before||changedSensors)renderDiaryUpdate();
    const was=JSON.stringify(scale);
    await refreshScale(user).catch(()=>{});
    if(ready()&&was!==JSON.stringify(scale))renderDiaryUpdate();
@@ -1364,6 +1429,7 @@ if(typeof window!=="undefined"&&window.addEventListener){
  document.addEventListener("visibilitychange",recoverDiary);
  window.setInterval(recoverDiary,60000);
 }
+SportHealthView.bind(document,healthContext);
 initialize().catch(e=>note(e.message));
 function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
  if(busy&&!fromAction||document.querySelector("dialog[open]"))return;
@@ -1434,7 +1500,7 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
    if(linked){
      const moved=intakeDay+linked.date.slice(10);
      if(diaryInstant(moved).getTime()>Date.now()+60000)throw Error("Время связанной порции ещё не наступило.");
-     linked.date=moved;
+     SportPortions.setMealTime(linked,moved);
    }
  }
  if(old)s.supps=replaceRecordedDose(s.supps,index,name,entry);

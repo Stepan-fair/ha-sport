@@ -1,4 +1,27 @@
 configuration:
+  person1_health_dates:
+    name: First profile · measurement date attributes
+    description: Optional. For each metric, enter the entity attribute containing the measurement date, or wake date for sleep. Use YYYY-MM-DD or a timestamp with an offset. Undated readings can be confirmed by the diary owner.
+    fields: &health_metric_fields
+      steps: {name: Steps}
+      distance: {name: Walking and running distance}
+      exercise: {name: Exercise minutes}
+      active: {name: Active energy}
+      resting: {name: Resting energy}
+      restingPulse: {name: Resting heart rate}
+      sleep: {name: Sleep duration}
+  person2_health_dates:
+    name: Second profile · measurement date attributes
+    description: Optional. For each metric, enter the entity attribute containing the measurement date, or wake date for sleep. Use YYYY-MM-DD or a timestamp with an offset. Undated readings can be confirmed by the diary owner.
+    fields: *health_metric_fields
+  person1_health:
+    name: First profile · Apple Health sensors
+    description: Assign this person's sensor.* entities. The owner selects which readings to import in the diary.
+    fields: *health_metric_fields
+  person2_health:
+    name: Second profile · Apple Health sensors
+    description: Assign this person's sensor.* entities. The owner selects which readings to import in the diary.
+    fields: *health_metric_fields
   person1_name:
     name: First profile · display name
     description: Name shown in the diary and profile switcher. Emoji are supported.

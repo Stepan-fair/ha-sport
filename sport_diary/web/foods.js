@@ -127,7 +127,8 @@ function importedFood(item) {
     const kj = perHundred("energy-kj") ?? perHundred("energy");
     if (kj !== null) nut[0] = kj * 1000 / 4184;
   }
-  return {name: [title, item.brands].filter(Boolean).join(" · "), code: String(item.code || ""), quantity: item.quantity || "",
+  const fiber=perHundred("fiber");
+  return {name: [title, item.brands].filter(Boolean).join(" · "), code: String(item.code || ""), quantity: item.quantity || "", ...(fiber==null?{}:{fiber}),
     nut, unit: item.nutrition_data_per === "100ml" ? "мл" : "г", online: true};
 }
 

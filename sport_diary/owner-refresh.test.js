@@ -18,14 +18,19 @@ test("Открытый дневник перечитывает порции, с�
     fetch:async (url,opts)=>{
       if(url==="profiles")return new Promise(()=>{});
       if(url.startsWith("weights/"))return {ok:true,json:async()=>[]};
-      return new Promise(resolve=>pending.push({url,method:opts?.method||"GET",
+      return new Promise(resolve=>pending.push({url,method:opts?.method||"GET",payload:opts?.body&&JSON.parse(opts.body),
         reply:(data,status=200)=>resolve({ok:status===200,status,json:async()=>data})}));
     }
   });
   const run=script=>vm.runInContext(script,ctx);
-  for(const script of ["logic","foods","portions","reports","report-view","app"]){
+  for(const script of ["logic","foods","portions","goals","health","reports","goals-view","health-view","report-view","app"]){
     run(fs.readFileSync(path.join(__dirname,"web",script+".js"),"utf8"));
   }
+  const badSensor=assert.rejects(run('request("health/person1",{refresh:true})'),/Уточните дату показания/);
+  pending.shift().reply({error:"Уточните дату показания"},400);
+  await badSensor;
+  const tooLarge=assert.rejects(run('request("profile/person1",{data:{},rev:0})'),/размер/i);
+  pending.shift().reply({},413);await tooLarge;
   const meal=(id,kcal)=>({id,date:day+"T10:00",name:id,amount:100,unit:"г",nut:[kcal,0,0,0],totals:[kcal,0,0,0]});
   const original={rev:1,data:{meals:[meal("a",400)]}};
   const incoming={rev:2,data:{meals:[...original.data.meals,meal("b",350)]}};
@@ -41,18 +46,31 @@ test("Открытый дневник перечитывает порции, с�
     assert.equal(url,"profile/person1");reply(result);
     await task;
   }
+  run('people=[{id:"person1",name:"Первый"}]');
   await refresh(incoming);
   assert.match(field("food-diary").innerHTML,/750 ккал/);
+  assert.match(field("health-panels").innerHTML,/Отметить окончание/);
   await refresh(incoming);
   assert.equal(run("state.meals.length"),2);
   assert.equal(field("product").value,"Черновик");
   assert.equal(field("query").value,"творог");
 
+  const measured={daily:[{metric:"steps",date:day,unit:"steps",value:5123,source:"test",receivedAt:day+"T19:00Z"}],sleep:[]};
+  await refresh({...incoming,data:{...incoming.data,healthImported:measured}});
+  assert.equal(run("state.healthImported.daily[0].value"),5123);
+  assert.equal(field("product").value,"Черновик");
+  const change=run('commit(s=>s.profile.minutes=42)');
+  const saving=pending.shift();
+  assert.equal(saving.method,"POST");
+  assert.equal(Object.hasOwn(saving.payload.data,"healthImported"),false);
+  saving.reply({rev:3});await change;
+  assert.equal(run("state.healthImported.daily[0].value"),5123);
+
   // A delayed GET cannot roll back a newer local save or repopulate another profile.
   await refresh(original);
-  assert.equal(run("rev"),2);
+  assert.equal(run("rev"),3);
   run('editingMeal="b"; editingMealBase=JSON.stringify(state.meals[1])');
-  await refresh({rev:3,data:{meals:[original.data.meals[0],meal("b",500)]}});
+  await refresh({rev:4,data:{meals:[original.data.meals[0],meal("b",500)]}});
   await assert.rejects(run('action("meal")'),/Порция изменилась/);
   assert.equal(pending.length,0);
   const delayed=run("recoverDiary()");

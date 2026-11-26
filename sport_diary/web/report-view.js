@@ -41,14 +41,22 @@ function rewardBody(r){
     disclosure("badges","Мои достижения · "+r.achievements.length,badges?'<ul class="earned">'+badges+'</ul>':'<p>Первое достижение откроется после записи тренировки или полной недели питания.</p>')+
     disclosure("ledger","Начисления за период · "+r.periodPoints, r.periodPoints?reportTable(["Дата","За что","Баллы"],r.rows.slice().reverse().flatMap(d=>d.awards.map(a=>[shortDay(d.day),a.label,"+"+a.value]))):'<p>Пока нет начислений.</p>');
 }
+function energyMethodLabel(row){
+  if(row.energyMethod==="daily")return "Суточные измерения";
+  if(row.energyMethod==="workout")return "Профиль и активные ккал занятия";
+  return row.energyMode==="manual"?"Введено вручную":row.energyMode==="off"?"Отключено":"Оценка по профилю";
+}
 function energyBody(r){
   const day=r.rows.find(d=>d.day===r.end),known=r.knownBalances,partial=r.partialBalances;
   const partialSum=partial.reduce((sum,d)=>sum+d.balance,0);
   const history=r.rows.map(d=>[shortDay(d.day),d.meals>d.unknown?numberRu(d.kcal):"—",d.maintenance??"—",
     d.balance==null?"—":signed(d.balance),d.unknown?"Уточнить калорийность: "+d.unknown+" порц.":d.meals?"Все записанные порции учтены":"Нет еды"]);
   return (day?reportMetrics([["Расход на "+shortDay(day.day),day.maintenance==null?"—":"≈ "+numberRu(day.maintenance)+" ккал"],
-    [day.energyMode==="manual"?"Введено за сутки":"Обычный день",day.base==null?"—":numberRu(day.base)+" ккал"],
-    ["Добавка за зал",day.active==null?"—":"+"+numberRu(day.active)+" ккал"]]):"")+
+    ["Источник расхода",energyMethodLabel(day)],
+    [day.energyMode==="manual"?"Введено за сутки":day.energyMethod==="daily"?"Энергия покоя":"Обычный день",day.base==null?"—":numberRu(day.base)+" ккал"],
+    [day.energyMethod==="daily"?"Активные ккал за сутки":"Добавка за зал",day.active==null?"—":"+"+numberRu(day.active)+" ккал"]]):"")+
+    (day?.energyCoverage&&(day.energyReceivedAt||day.energyMethod!=="profile")?'<p class="muted">'+esc(day.energyCoverage)+'</p>':"")+
+    (day?.energyReceivedAt?'<p class="muted">Последнее обновление · '+esc(diaryTime(new Date(day.energyReceivedAt)).replace("T"," "))+'</p>':"")+
     '<p>Баланс по внесённому на данный момент = записанные калории − оценка расхода за полные сутки.</p>'+
     reportMetrics([["Дефицит за дни с известной калорийностью",known.length?numberRu(r.deficit)+" ккал":"—"],
       ["Профицит за такие дни",known.length?numberRu(r.surplus)+" ккал":"—"],
@@ -61,9 +69,10 @@ function energyBody(r){
 function nutritionEnergySummary(){
   const r=diaryReport(reportState(),scale,boundScale(),selectedDay,"day"),d=r.rows[0];
   const hint=[];
-  if(!d?.meals)hint.push("Пока нет записей питания.");
+  if(!d?.foodCount)hint.push(d?.meals?"Есть отметка добавки. Приёмы еды пока не внесены.":"Пока нет записей питания.");
   if(d?.unknown)hint.push("Уточни калорийность "+d.unknown+" порц. Учтены известные калории.");
   if(d&&d.maintenance==null)hint.push("Для оценки расхода проверь профиль или укажи расход вручную.");
+  if(d?.maintenance!=null)hint.push("Расход · "+energyMethodLabel(d)+(d.energyCoverage?.includes("не подтверждены")?" · данные часов за день неполные.":"."));
   return reportMetrics([["Съедено по известным порциям",d&&d.meals>d.unknown?numberRu(d.kcal)+" ккал":"—"],
     ["Расход за сутки",d?.maintenance==null?"—":"≈ "+numberRu(d.maintenance)+" ккал"],
     [d?.partialCalories?"Предварительный баланс":"Баланс по внесённому",d?.balance==null?"—":signed(d.balance)+" ккал"]])+
@@ -86,7 +95,8 @@ function intakeBody(r){
   const macros=intakeLabels.map((label,i)=>metric(label,n.known[i],n.knownCount[i],n.missing[i],i===0?"ккал":"г"));
   const ended=r.elapsed>0&&r.end<r.today;
   const doses=doseMetrics.map(([key,prefix,label,unit])=>metric(label,d[key],d[prefix+"Known"]||(ended&&!d[prefix+"Unknown"]),d[prefix+"Unknown"],unit));
-  return '<div class="reportMetrics">'+macros.join("")+doses.join("")+'</div>'+legacyDoseSelection(issues);
+  return reportMetrics([["Дней с записью еды",r.foodDays],["Из них с известным белком всех внесённых порций",r.loggedProteinDays]])+
+    '<div class="reportMetrics">'+macros.join("")+doses.join("")+'</div>'+legacyDoseSelection(issues);
 }
 function legacyDoseSelection(issues){
   const choices=issues.filter(row=>row.kind==="dose"&&state.supps[row.index]?.servings==null&&row.fields.some(f=>f.startsWith("Порции")));
@@ -105,6 +115,21 @@ function exerciseBody(r){
     graph(records.map(v=>[v.day,v.sets]),"Рабочие подходы за день","подх.")+
     disclosure("set-history","Вес и повторы рабочих подходов",reportTable(["Дата","Подходы","Кг × повторы"],records.map(v=>[shortDay(v.day),v.sets,v.lines.join(" · ")])));
 }
+function healthPeriodBody(r){
+  const h=r.health;
+  if(!h.nights&&!Object.values(h.daily).some(m=>m.days))return "";
+  const rows=[],labels={steps:["Шаги","шаг."],distance:["Ходьба и бег","км"],exercise:["Упражнения","мин"],
+    active:["Активная энергия","ккал"],resting:["Энергия покоя","ккал"],restingPulse:["Пульс покоя","уд/мин"]};
+  for(const [key,[label,unit]] of Object.entries(labels)){
+    const m=h.daily[key];
+    if(m?.days)rows.push([label,numberRu(m.average)+" "+unit,m.days+" из "+r.elapsed]);
+  }
+  const sleep=h.nights?reportMetrics([["Среднее за ночь",numberRu(h.averageSleep/60)+" ч"],["Ночей с данными",h.nights+" из "+r.elapsed]])+
+    graph(r.rows.filter(d=>d.health?.hasNight).map(d=>[d.day,d.health.sleepMinutes/60]),"Сон по датам пробуждения","ч")+
+    (h.trend.length?reportTable(["Пробуждение","Начало основного сна","Конец","Сон, ч"],h.trend.map(n=>[shortDay(n.date),diaryTime(new Date(n.start)).slice(11,16),diaryTime(new Date(n.end)).slice(11,16),numberRu(n.minutes/60)])):""):"";
+  return disclosure("health-period","Сон и повседневная активность",sleep+
+    (rows.length?reportTable(["Показатель","Среднее за день","Дней с данными"],rows):""));
+}
 function resultsPage(){
   const r=diaryReport(reportState(),scale,boundScale(),selectedDay,reportPeriod);
   const delta=r.weights.length>=2?r.weights.at(-1).kg-r.weights[0].kg:null;
@@ -120,7 +145,8 @@ function resultsPage(){
       graph(r.weights.map(w=>[w.day,w.kg]),"Последнее измерение каждого дня","кг")+
       (r.weights.length?disclosure("weighings","Точные значения",reportTable(["Дата","Вес, кг","Источник"],r.weights.map(w=>[dayLabel(w.day),numberRu(w.kg),weightSource(w)]))):""))+
     disclosure("exercises","Тренировки и упражнения · "+r.sets+" подх.",reportMetrics([["Время",r.minutes+" мин"],["Повторы",r.reps],["Сумма вес × повторы",numberRu(r.volume)+" кг"]])+exerciseBody(r))+
-    disclosure("intake","Питание и добавки за период",intakeBody(r))+
+    disclosure("intake","Питание и добавки за период",intakeBody(r)+SportGoalsView.report(r.nutritionGoals,reportPeriod))+
+    healthPeriodBody(r)+
     disclosure("energy","Баланс энергии по внесённому · "+(r.balance==null?"нет оценки":(r.partialBalances.length?"предварительно ":"≈ ")+signed(r.balance)+" ккал"),energyBody(r))+'</article>'+
     card("Баллы и достижения",rewardBody(r))+
     disclosure("workouts-list","История тренировок · "+history.length,history.map(w=>btn("history-"+esc(w.id),esc(w.date.replace("T"," ")))).join("")||"<p>В этом периоде занятий нет.</p>");
@@ -128,8 +154,8 @@ function resultsPage(){
 function dailyRecap(){
   const r=diaryReport(reportState(),scale,boundScale(),selectedDay,"day"),d=r.rows[0];
   const status=d?.trainingStatus||("По плану · "+trainingSlot(state,draft,selectedDay));
-  return card("Итог дня",reportMetrics([["Питание",d?.meals?d.meals+" порц.":"—"],["Тренировка",status],["Расход за сутки",d?.maintenance!=null?"≈ "+numberRu(d.maintenance)+" ккал":"—"],["Баланс по внесённому",d?.balance==null?"—":signed(d.balance)+" ккал"+(d.partialCalories?" (частично)":"")],["Баллы","+"+r.periodPoints]])+
-    btn("report-day","Посмотреть итог"));
+  return card("Итог дня",reportMetrics([["Питание",d?.foodCount?d.foodCount+" порц.":"—"],["Тренировка",status],["Расход за сутки",d?.maintenance!=null?"≈ "+numberRu(d.maintenance)+" ккал":"—"],["Баланс по внесённому",d?.balance==null?"—":signed(d.balance)+" ккал"+(d.partialCalories?" (частично)":"")],["Баллы","+"+r.periodPoints]])+
+    btn("report-day","Посмотреть итог"))+SportGoalsView.today(r.nutritionGoals);
 }
 function activeEnergyRule(){
   return Object.entries(state.energyRules||{}).filter(([day])=>day<=selectedDay).sort(([a],[b])=>b.localeCompare(a))[0]?.[1]||null;

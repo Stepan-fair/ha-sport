@@ -38,6 +38,7 @@
     const quantity = meal.portion ? SportPortions.describe(meal.portion.mode, meal.portion.count, meal, meal.amount)
       : (meal.amount == null ? "Количество неизвестно" : num.format(meal.amount) + " " + meal.unit);
     return meal.date.replace("T", " ") + " · " + meal.name + " · " + quantity + " · " + macros(meal.totals)
+      + (meal.mealGroup ? " · "+meal.mealGroup : "") + (meal.fiberTotal!=null ? " · клетчатка "+num.format(meal.fiberTotal)+" г" : "")
       + (meal.oil ? " · Из них масло — " + num.format(meal.oil.grams) + " г (" +
         macros(meal.oil.nut.map(v => v == null ? null : v * meal.oil.grams / 100)) + ")" : "")
       + (meal.estimateNote ? " · Приблизительно: " + meal.estimateNote : "");
@@ -54,6 +55,8 @@
     if (correction && visibleMeals.some(m => m.id === correction.id)) el("proposal-meal").value = correction.id;
     else clearCorrection();
     const items = data.meals.map(m => paragraph(describe(m)));
+    if(data.count)items.push(paragraph("Клетчатка · "+(data.fiber?.knownCount?num.format(data.fiber.known)+" г":"нет данных")+
+      " · известно для "+(data.fiber?.knownCount||0)+" из "+data.count+" порций"));
     const protein = data.supplementProtein;
     if (protein) {
       const amount = protein.grams == null ? "неизвестно" : num.format(protein.grams) + " г" + (protein.incomplete ? " + неизвестно" : "");
@@ -74,6 +77,7 @@
     el("piece-size").required = !el("piece-size-label").hidden;
   }
   function clearNutrients() {
+    el("fiber").value="";
     for (let i = 0; i < 4; i++) el("nut" + i).value = "";
     sizeFields();
     message("Введите КБЖУ для выбранной единицы и основания.");
@@ -83,6 +87,7 @@
     el("one-off").checked = false;
     el("preference-panel").hidden = false;
     el("oil").value = "";
+    el("oil-fiber").value="";
     for (let i = 0; i < 4; i++) {
       el("oil" + i).value = "";
       el("oil" + i).required = false;
@@ -111,6 +116,7 @@
     selected = card;
     setProteinInputs(card);
     el("name").value = card.name;
+    el("fiber").value=card.fiber??"";
     el("mode").value = card.preferred?.mode || (card.pieceName || card.basis === "piece" ? "piece" : "base"); el("basis").value = card.basis || "100";
     el("unit").value = card.unit || "г"; el("piece").value = card.pieceName || "";
     el("count").value = card.preferred?.count ?? "";
@@ -159,7 +165,12 @@
       sizes, pieceName: el("piece").value, nut: fields("nut"), code: selected.code || "",
       origin: selected.origin || (selected.catalogItem ? "Каталог HA" : selected.source ? "Встроенный каталог" : "Ведение питания"),
       oneOff: el("one-off").checked, estimateNote: el("estimate").value.trim()};
-    if (el("oil").valueAsNumber > 0) body.oil = {grams: el("oil").valueAsNumber, nut: fields("oil")};
+    if(el("fiber").value!=="")body.fiber=el("fiber").valueAsNumber;
+    if(el("meal-group").value.trim())body.mealGroup=el("meal-group").value.trim();
+    if (el("oil").valueAsNumber > 0) {
+      body.oil = {grams: el("oil").valueAsNumber, nut: fields("oil")};
+      if(el("oil-fiber").value!=="")body.oil.fiber=el("oil-fiber").valueAsNumber;
+    }
     if(el("product-kind").value){
       body.productKind=el("product-kind").value;
       const details={};
@@ -178,8 +189,8 @@
     if (!el("count").value) return;
     try {
       const body = payload();
-      const {totals} = SportPortions.calculate(body, body);
-      preview.textContent = "В порции · " + macros(totals);
+      const {totals,fiberTotal} = SportPortions.calculate(body, body);
+      preview.textContent = "В порции · " + macros(totals)+(fiberTotal==null?"":" · клетчатка "+num.format(fiberTotal)+" г");
     } catch {
       // A partially entered label or quantity has no portion total yet.
     }
@@ -242,11 +253,16 @@
     if (el("proposal-count").value) changes.count = el("proposal-count").valueAsNumber;
     if (el("proposal-date").value) changes.date = el("proposal-date").value;
     if (el("proposal-nut").value.trim()) changes.nut = labelValues("proposal-nut");
+    if(el("clear-fiber").checked)changes.fiber=null;
+    else if(el("proposal-fiber").value!=="")changes.fiber=el("proposal-fiber").valueAsNumber;
+    if(el("proposal-group").value.trim())changes.mealGroup=el("proposal-group").value.trim();
     const oil = el("proposal-oil"), label = el("proposal-oil-nut").value.trim();
-    if (oil.value || label) {
+    if (oil.value || label || el("proposal-oil-fiber").value!=="") {
       const grams = oil.value ? oil.valueAsNumber : correction.oil?.grams;
       if (grams !== 0 && !grams) throw Error("Введите массу масла для этой порции.");
       changes.oil = grams === 0 ? null : {grams, nut: label ? labelValues("proposal-oil-nut") : correction.oil?.nut};
+      const fiber=el("proposal-oil-fiber").value==="" ? correction.oil?.fiber : el("proposal-oil-fiber").valueAsNumber;
+      if(changes.oil && fiber!=null)changes.oil.fiber=fiber;
     }
     return {kind:"meal", targetId:correction.id, version:correction.version, reason:el("proposal-reason").value, changes};
   }
@@ -256,8 +272,8 @@
     if (el("preference-count").value) changes.count = el("preference-count").valueAsNumber;
     const body = {kind:"preference", reason:el("preference-reason").value, changes};
     if (selected.id && selected.version) return {...body, targetId:selected.id, version:selected.version};
-    const {name, unit, basis, sizes, pieceName, nut, code, origin} = payload();
-    return {...body, card:{name, unit, basis, sizes, pieceName, nut, code, origin}};
+    const {name, unit, basis, sizes, pieceName, nut, fiber, code, origin} = payload();
+    return {...body, card:{name, unit, basis, sizes, pieceName, nut, fiber, code, origin}};
   }
   async function sendProposal(event, buttonId, getBody) {
     event.preventDefault();

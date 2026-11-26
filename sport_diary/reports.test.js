@@ -7,6 +7,78 @@ function workout(day,name="Жим",kg=40){
   return {date:day+"T18:00",end:day+"T18:45",exercises:[{name,sets:[{kg,reps:10,done:true},{kg:90,reps:1,done:false}]}]};
 }
 const run=(s,day,p="week",scale=[])=>diaryReport(s,scale,"sensor.mass",day,p,day);
+test("Только еда или напиток с количеством дают день питания, отметка протеина даёт известный белок",()=>{
+  const days=Array.from({length:7},(_,i)=>"2026-03-0"+(i+2));
+  const s=base(), report=()=>run(s,days[6]);
+  s.supps=days.map(day=>({date:day+"T18:00",names:["Протеин"]}));
+  assert.equal(report().foodDays,0);
+  assert.equal(report().foodStreak.longest,0);
+  s.supps.forEach(row=>row.servings=1);
+  assert.equal(report().doses.proteinGrams,154);
+  assert.equal(report().foodDays,0);
+  s.meals=days.map((day,i)=>({id:"shake-"+i,date:day+"T18:00",name:"Шейк",amount:30,productKind:"protein",totals:[null,22,null,null]}));
+  s.supps.forEach((row,i)=>row.mealId=s.meals[i].id);
+  const filled=report();
+  assert.equal(filled.foodDays,7);
+  assert.equal(filled.loggedProteinDays,7);
+  assert.equal(filled.nutrition.known[1],154);
+  assert.ok(filled.achievements.some(([name])=>name==="7 дней с записями питания"));
+  s.meals[3].amount=0;
+  assert.equal(report().foodDays,6);
+  assert.equal(report().foodStreak.current,3);
+  assert.ok(!report().achievements.some(([name])=>name==="7 дней с записями питания"));
+});
+test("Полный расход часов, необязательные данные и доступ помощника к одним итогам",()=>{
+  const s=base(),day="2026-03-05";
+  s.energyRules={};s.meals=[meal(day,1800)];
+  const sample=(value)=>({value,unit:"kcal",source:"manual",date:day,complete:true});
+  s.health={daily:{[day]:{active:sample(500),resting:sample(1700)}}};
+  const actual=run(s,day,"day").rows[0];
+  assert.equal(actual.maintenance,2200);
+  assert.equal(actual.balance,-400);
+  assert.equal(actual.energyMethod,"daily");
+  const helper=require("node:child_process").execFileSync(process.execPath,["web/nutrition-summary.js","day"],{
+    cwd:__dirname,input:JSON.stringify({state:s,day,scale:[],entity:""}),encoding:"utf8"
+  });
+  const result=JSON.parse(helper);
+  assert.equal(result.maintenance,2200);
+  assert.equal(result.balance,-400);
+  assert.ok(!Object.hasOwn(result,"health"));
+  s.health.daily[day].active.complete=false;
+  assert.equal(run(s,day,"day").rows[0].maintenance,null);
+  assert.equal(run(s,day,"day").foodDays,1);
+});
+test("Интервальная запись с часовым смещением на форме засчитывается на дату дневника",()=>{
+  const {setDiaryZone}=require("./web/logic");
+  const model=require("./web/health"),view=require("./web/health-view");
+  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try{
+    setDiaryZone("UTC");
+    const c={day:"2026-02-15",tab:0,state:base(),zone:"UTC",profile:{id:"owner"},model};
+    const form=view.editor(c,"sleep","");
+    const message=form.save(c.state,new Map(Object.entries({kind:"main",method:"interval",start:"2026-02-14T16:30",startOffset:"-08:00",
+      end:"2026-02-14T23:30",endOffset:"-08:00",wakeMethod:"total"})));
+    assert.match(message,/15\.02\.2026/);
+    assert.equal(model.day(c.state,"2026-02-15").sleepMinutes,420);
+    assert.equal(model.day(c.state,"2026-02-14").sleepMinutes,null);
+  }finally{setDiaryZone(zone)}
+});
+test("Скрытый импорт сна и занятия можно восстановить прямо из дневника",()=>{
+  const model=require("./web/health"),view=require("./web/health-view"),date="2026-02-15";
+  const c={day:date,tab:0,state:base(),zone:"UTC",profile:{id:"owner"},model};
+  model.importSleep(c.state,[{id:"night",source:"Watch",date,minutes:415}]);
+  model.importWorkouts(c.state,[{id:"walk",type:"walking",source:"Watch",start:date+"T11:00:00Z",end:date+"T12:00:00Z",activeKcal:150}]);
+  for(const [tab,id,kind] of [[0,model.day(c.state,date).episodes[0].id,"sleep"],[1,model.day(c.state,date).workouts[0].id,"workout"]]){
+    c.tab=tab;
+    view.editor(c,"delete-"+kind,id).save(c.state);
+    assert.ok(view.panels(c).includes('data-health="undo-'+kind+'"'));
+    assert.ok(!view.panels({...c,day:"2026-02-14"}).includes('data-health="undo-'+kind+'"'));
+    view.editor(c,"undo-"+kind,id).save(c.state);
+    assert.ok(!view.panels(c).includes('data-health="undo-'+kind+'"'));
+  }
+  assert.equal(model.day(c.state,date).sleepMinutes,415);
+  assert.equal(model.day(c.state,date).workouts.length,1);
+});
 test("Calendar periods use Monday, cutoff, leap day and calendar years",()=>{
   assert.equal(reportStart("2027-01-03","week"),"2026-12-28");
   assert.equal(reportStart("2024-02-29","month"),"2024-02-01");

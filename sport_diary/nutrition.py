@@ -23,7 +23,25 @@ class BadPortion(ValueError):
 
 PROTEIN_KINDS = ("protein", "protein_mix")
 PROTEIN_VALUES = ("servings", "powderGrams", "proteinGrams")
-FIELDS.update(("productKind", "proteinDetails", "linkDoseId"))
+FIELDS.update(("productKind", "proteinDetails", "linkDoseId", "fiber", "mealGroup"))
+
+
+def optional_fiber(value):
+    if value is not None and not bounded_number(value):
+        raise BadPortion("Укажите клетчатку в граммах или оставьте поле пустым.")
+    return value
+
+
+def meal_group(value):
+    if not safe_text(value, 80):
+        raise BadPortion("Укажите название приёма пищи до 80 символов.")
+    return value.strip()
+
+
+def valid_oil(oil, *, allow_unknown=False):
+    return (isinstance(oil, dict) and {"grams", "nut"} <= set(oil) <= {"grams", "nut", "fiber"} and
+            bounded_number(oil.get("grams"), positive=True) and valid_nutrients(oil.get("nut"), allow_unknown=allow_unknown) and
+            (oil.get("fiber") is None or bounded_number(oil["fiber"])))
 
 
 def protein_names(row):
@@ -167,10 +185,11 @@ def make_meal(body):
     if type(body.get("oneOff", False)) is not bool:
         raise BadPortion("Проверьте режим сохранения.")
     oil = body.get("oil")
-    if oil is not None and (not isinstance(oil, dict) or set(oil) != {"grams", "nut"} or
-                            not bounded_number(oil.get("grams"), positive=True) or not valid_nutrients(oil.get("nut"))):
+    if oil is not None and not valid_oil(oil):
         raise BadPortion("Укажите количество масла и КБЖУ по этикетке.")
     card = {"name": name.strip(), "code": code, "nut": nut, "unit": unit, "basis": basis, "origin": origin}
+    if "fiber" in body:
+        card["fiber"] = optional_fiber(body["fiber"])
     if "productKind" in body:
         if body["productKind"] not in PROTEIN_KINDS:
             raise BadPortion("Проверьте вид продукта.")
@@ -186,6 +205,8 @@ def make_meal(body):
     if "error" in result:
         raise BadPortion(result["error"])
     meal = {**card, **result, "date": stamp, "id": "nutrition-" + op, "oneOff": body.get("oneOff", False)}
+    if "mealGroup" in body:
+        meal["mealGroup"] = meal_group(body["mealGroup"])
     info = body.get("proteinDetails")
     if "proteinDetails" in body:
         if (not body.get("productKind") or not isinstance(info, dict) or set(info) - set(PROTEIN_VALUES) or
@@ -252,6 +273,8 @@ def public_card(item):
     nut = item.get("nut")
     if item.get("productKind") in PROTEIN_KINDS:
         result["productKind"] = item["productKind"]
+    if bounded_number(item.get("fiber")):
+        result["fiber"] = item["fiber"]
     result["nut"] = [v if bounded_number(v) else None for v in nut] if isinstance(nut, list) and len(nut) == 4 else [None]*4
     sizes = item.get("sizes")
     if isinstance(sizes, dict):
@@ -310,6 +333,10 @@ def public_meal(item, index, totals=None):
         amount = None
     card["amount"] = amount if amount is not None and math.isfinite(amount) and amount > 0 else None
     card["totals"] = totals if totals is not None else daily_calculation("mealTotals", [item])[0]
+    if bounded_number(item.get("fiberTotal")):
+        card["fiberTotal"] = item["fiberTotal"]
+    if safe_text(item.get("mealGroup"), 80):
+        card["mealGroup"] = item["mealGroup"]
     info = item.get("proteinDetails")
     if card.get("productKind") and isinstance(info, dict):
         card["proteinDetails"] = {k: info[k] for k in PROTEIN_VALUES if bounded_number(info.get(k))}
@@ -319,6 +346,8 @@ def public_meal(item, index, totals=None):
         card["portion"] = {"mode": portion["mode"], "count": portion["count"], "size": size if bounded_number(size, positive=True) else None}
     if isinstance(oil, dict) and bounded_number(oil.get("grams"), positive=True) and valid_nutrients(oil.get("nut"), allow_unknown=True):
         card["oil"] = {"grams": oil["grams"], "nut": oil["nut"]}
+        if bounded_number(oil.get("fiber")):
+            card["oil"]["fiber"] = oil["fiber"]
     if safe_text(item.get("estimateNote"), 500):
         card["estimateNote"] = item["estimateNote"]
     card["oneOff"] = item.get("oneOff") is True
@@ -342,7 +371,7 @@ def validate_preference(card, change):
 
 
 def proposed_card(card):
-    allowed = {"name", "unit", "nut", "basis", "pieceName", "sizes", "code", "origin"}
+    allowed = {"name", "unit", "nut", "basis", "pieceName", "sizes", "code", "origin", "fiber"}
     if not isinstance(card, dict) or set(card) - allowed:
         raise BadPortion("Недопустимые поля новой карточки.")
     basis = card.get("basis", "100")
@@ -353,9 +382,11 @@ def proposed_card(card):
 
 
 def corrected_meal(meal, change):
-    if not isinstance(change, dict) or not change or set(change) - {"count", "date", "nut", "oil"}:
-        raise BadPortion("Можно предложить дату и время, количество, КБЖУ или масло для одной порции.")
+    if not isinstance(change, dict) or not change or set(change) - {"count", "date", "nut", "oil", "fiber", "mealGroup"}:
+        raise BadPortion("Проверьте предложенные изменения порции.")
     updated = dict(meal)
+    if "mealGroup" in change:
+        updated["mealGroup"] = meal_group(change["mealGroup"])
     if "date" in change:
         stamp = change["date"]
         try:
@@ -364,9 +395,14 @@ def corrected_meal(meal, change):
                 raise ValueError
         except (TypeError, ValueError):
             raise BadPortion("Укажите фактическую местную дату и время.") from None
+        if stamp != meal.get("date"):
+            updated.pop("actualConfirmed", None)
+            updated.pop("actualEnd", None)
         updated["date"] = stamp
-    if change.keys() - {"date"}:
+    if change.keys() - {"date", "mealGroup"}:
         card = public_card(meal)
+        if "fiber" in change:
+            card["fiber"] = updated["fiber"] = optional_fiber(change["fiber"])
         if "nut" in change:
             if not valid_nutrients(change["nut"], allow_unknown=True):
                 raise BadPortion("Проверьте КБЖУ этикетки.")
@@ -379,8 +415,7 @@ def corrected_meal(meal, change):
         if mode != "base" and bounded_number(portion.get("size"), positive=True):
             card.setdefault("sizes", {}).setdefault(mode, portion["size"])
         oil = change.get("oil", meal.get("oil"))
-        if oil is not None and (not isinstance(oil, dict) or set(oil) != {"grams", "nut"} or
-                              not bounded_number(oil.get("grams"), positive=True) or not valid_nutrients(oil.get("nut"), allow_unknown=True)):
+        if oil is not None and not valid_oil(oil, allow_unknown=True):
             raise BadPortion("Проверьте количество и КБЖУ масла.")
         result = daily_calculation("portion", {"card": card, "mode": mode, "count": count, "oil": oil, "original": meal})
         if "error" in result:

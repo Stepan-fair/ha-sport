@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from threading import Event, Thread
 import measurements
+import health_sensors
 import food_catalog
 import nutrition
 from datetime import datetime
@@ -199,6 +200,7 @@ def save(db, who, body):
     if old["rev"] != body["rev"]:
         return None
     rev = old["rev"] + 1
+    body["data"].pop("healthImported", None)
     nutrition.version_targets(body["data"], old["data"])
     write_state(db, who, rev, body["data"])
     return rev
@@ -210,7 +212,17 @@ def open_diary():
     db.execute("""CREATE TABLE IF NOT EXISTS food_proposal(
                who TEXT, id TEXT, signature TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL,
                PRIMARY KEY (who, id))""")
+    health_sensors.install(db)
     return db
+
+
+def profile_with_health(db, who, settings):
+    state = read_state(db, who)
+    observations = health_sensors.imported(db, who, settings)
+    state["data"].pop("healthImported", None)
+    if any(observations.values()):
+        state["data"]["healthImported"] = observations
+    return state
 
 
 def append_meal(db, who, body):
@@ -436,7 +448,8 @@ class Handler(BaseHTTPRequestHandler):
             now = datetime.now().astimezone()
             return self.reply(200, {"today": now.date().isoformat(), "zone": now.tzname()})
         with closing(open_diary()) as db:
-            state = read_state(db, who)["data"]
+            state = (profile_with_health(db, who, settings) if len(parts) == 3 and parts[1] == "days"
+                     else read_state(db, who))["data"]
         if parts == ["nutrition", "cards"]:
             cards = nutrition.personal_cards(state)
             q = query.get("q", [""])[0].strip()[:100]
@@ -481,16 +494,53 @@ class Handler(BaseHTTPRequestHandler):
         except (nutrition.BadPortion, json.JSONDecodeError, UnicodeDecodeError) as exc:
             return self.reply(400, {"error": str(exc) if isinstance(exc, nutrition.BadPortion) else "Некорректная запись."})
 
+    def health_request(self, who, settings, user_id):
+        with closing(open_diary()) as db:
+            if self.command == "POST":
+                if settings.get(who + "_user") != user_id:
+                    return self.reply(403, {})
+                if self.headers.get("Content-Type") != "application/json":
+                    return self.reply(415, {})
+                size = int(self.headers.get("Content-Length") or 0)
+                if not 0 < size <= 8192:
+                    return self.reply(413, {})
+                try:
+                    body = json.loads(self.rfile.read(size))
+                except (ValueError, UnicodeDecodeError):
+                    return self.reply(400, {})
+                if isinstance(body, dict) and set(body) == {"refresh"} and body["refresh"] is True:
+                    health_sensors.refresh(db, who, options, core, diary_zone())
+                else:
+                    with db:
+                        db.execute("BEGIN IMMEDIATE")
+                        settings = options()
+                        if who not in allowed_profiles(settings, user_id) or settings.get(who + "_user") != user_id:
+                            return self.reply(403, {})
+                        status = health_sensors.update(db, who, body, settings, diary_zone())
+                    if status != 200:
+                        return self.reply(status, {"error": "Предложение уже изменилось." if status == 409
+                                               else "Проверьте выбранные показатели и дату измерения."})
+                settings = options()
+                if who not in allowed_profiles(settings, user_id):
+                    return self.reply(403, {})
+            return self.reply(200, health_sensors.snapshot(db, who, settings, settings.get(who + "_user") == user_id))
+
     def handle_request(self):
         if self.client_address[0] not in ("172.30.32.2", "127.0.0.1"):
             return self.reply(403, {})
         url = urlsplit(self.path)
         who = url.path.split("/")[-1]
-        if url.path in ("/", "/profiles", "/food") or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/nutrition/", "/proposals/")):
+        if url.path in ("/", "/profiles", "/food") or url.path.startswith(("/profile/", "/weight/", "/weights/", "/scale-info/", "/nutrition/", "/proposals/", "/health/")):
             settings = options()
             user_id = self.headers.get("X-Remote-User-Id") if self.client_address[0] == "172.30.32.2" else None
             allowed = allowed_profiles(settings, user_id)
             assistant = assistant_profile(settings, user_id)
+            if url.path.startswith("/health/"):
+                if url.path != "/health/" + who or who not in allowed:
+                    return self.reply(403, {})
+                if url.query:
+                    return self.reply(400, {})
+                return self.health_request(who, settings, user_id)
             if url.path.startswith("/proposals/"):
                 if who not in allowed or not user_id or settings.get(who + "_user") != user_id or url.path != "/proposals/" + who:
                     return self.reply(403, {})
@@ -522,7 +572,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/profile/" + who and who in ("person1", "person2"):
             with closing(open_diary()) as db:
                 if self.command == "GET":
-                    return self.reply(200, read_state(db, who))
+                    return self.reply(200, profile_with_health(db, who, settings))
                 if self.headers.get("Content-Type") != "application/json":
                     return self.reply(415, {})
                 size = int(self.headers.get("Content-Length", "0"))
@@ -576,7 +626,10 @@ class Handler(BaseHTTPRequestHandler):
                   "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript"),
                   "/foods.js": ("foods.js","text/javascript"), "/reports.js": ("reports.js","text/javascript"),
                   "/portions.js": ("portions.js","text/javascript"), "/assistant.js": ("assistant.js","text/javascript"),
-                  "/report-view.js": ("report-view.js","text/javascript")}
+                  "/report-view.js": ("report-view.js","text/javascript"),
+                  "/goals.js": ("goals.js","text/javascript"), "/goals-view.js": ("goals-view.js","text/javascript"),
+                  "/health.js": ("health.js","text/javascript"), "/health-view.js": ("health-view.js","text/javascript"),
+                  "/health.css": ("health.css","text/css")}
         if url.path in static:
             name, mime = static[url.path]
             return self.reply(200, (ROOT / "web" / name).read_bytes(), mime)
@@ -595,4 +648,5 @@ if __name__ == "__main__":
     DATA.mkdir(parents=True, exist_ok=True)
     Thread(target=catalog.prepare,daemon=True).start()
     Thread(target=measurements.poll,args=(Event(), DATA/"sport.db",PROFILES,options,core),daemon=True).start()
+    Thread(target=health_sensors.poll,args=(Event(),open_diary,options,core,diary_zone),daemon=True).start()
     ThreadingHTTPServer((os.environ.get("SPORT_BIND", "0.0.0.0"), int(os.environ.get("SPORT_PORT","8099"))), Handler).serve_forever()

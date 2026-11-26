@@ -43,18 +43,23 @@ const SportPortions = (() => {
     const baseTotals = nutrients(card.nut, !input.allowPartial && (perPiece || mode === "piece")).map(value => value === null ? null : value * factor);
     let oil;
     if (input.oil) oil = {grams:number(input.oil.grams, "Масло, г"), nut:nutrients(input.oil.nut, !input.allowPartial)};
+    if (oil && input.oil.fiber != null && input.oil.fiber !== "") oil.fiber=number(input.oil.fiber,"Клетчатка в масле",true);
+    const fiber = card.fiber == null || card.fiber === "" ? null : number(card.fiber,"Клетчатка",true);
+    let fiberTotal = fiber === null || (oil && oil.fiber == null) ? null : fiber*factor+(oil ? oil.fiber*oil.grams/100 : 0);
     const totals = baseTotals.map((value, i) => value === null || oil && oil.nut[i]===null ? null : value + (oil ? oil.nut[i] * oil.grams / 100 : 0));
     const old=input.original;
     if(old && old.name===card.name && old.unit===card.unit && (old.basis||"100")===(card.basis||"100") &&
        (old.portion?.mode||"base")===mode && Number(old.portion?.count??old.amount)===count &&
        Number(old.amount)===Number(amount) && (mode==="piece" || !perPiece || old.sizes?.piece===card.sizes?.piece)){
+      if(Number.isFinite(old.fiberTotal) && (old.fiber??null)===fiber &&
+          (old.oil?.grams??0)===(oil?.grams??0) && (old.oil?.fiber??null)===(oil?.fiber??null))fiberTotal=old.fiberTotal;
       for(let i=0;i<4;i++){
         const sameOil=(old.oil?.grams??0)===(oil?.grams??0) && (old.oil?.nut?.[i]??null)===(oil?.nut?.[i]??null);
         if(sameOil && (old.nut?.[i]??null)===(card.nut[i]??null) && Number.isFinite(old.totals?.[i]))totals[i]=old.totals[i];
       }
     }
-    if ((amount !== null && !Number.isFinite(amount)) || totals.some(v => v !== null && !Number.isFinite(v))) throw Error("Проверь количество и КБЖУ.");
-    return {amount, portion:{mode, count, size}, baseTotals, totals, ...(oil ? {oil} : {})};
+    if ((amount !== null && !Number.isFinite(amount)) || [...totals,fiberTotal].some(v => v !== null && !Number.isFinite(v))) throw Error("Проверь количество и состав.");
+    return {amount, portion:{mode, count, size}, baseTotals, totals, fiberTotal, ...(oil ? {oil} : {})};
   }
 
   function describe(mode, count, card, amount) {
@@ -115,8 +120,17 @@ const SportPortions = (() => {
     });
   }
 
+  function setMealTime(meal, date, previousDate=meal.date) {
+    if(date!==previousDate){
+      delete meal.actualConfirmed;
+      delete meal.actualEnd;
+    }
+    meal.date=date;
+  }
+
   function saveMeal(state, meal, card, editing) {
     const original = editing && state.meals.find(old => old.id === meal.id);
+    if(original)setMealTime(meal,meal.date,original.date);
     if (editing) state.meals = state.meals.map(old => old.id === meal.id ? meal : old);
     else state.meals.push(meal);
     if (meal.oneOff) return;
@@ -136,6 +150,9 @@ const SportPortions = (() => {
     return sorted.filter((m,i) => sorted.findIndex(other => sameProduct(other,m)) === i).slice(0, 5);
   }
 
-  return {number, nutrients, calculate, mealNutrients, describe, preferredText, sameProduct, setDoseLink, saveMeal, recent};
+  function recordedFoodCount(meals){
+    return meals.filter(meal=>Number(meal.amount)>0||Number(meal.portion?.count)>0).length;
+  }
+  return {recordedFoodCount, number, nutrients, calculate, mealNutrients, describe, preferredText, sameProduct, setDoseLink, setMealTime, saveMeal, recent};
 })();
 if (typeof module !== "undefined") module.exports = SportPortions;

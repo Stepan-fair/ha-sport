@@ -1,0 +1,29 @@
+.healthPanel { padding: 0; }
+.healthPanel > details > summary { padding: 16px 22px; min-height: 52px; color: var(--pine); }
+.healthPanel summary strong { margin-inline: 4px 10px; font-size: 1.15rem; }
+.healthPanel summary span, .healthRow small, .healthSensor small { color: var(--muted); font-size: .85rem; }
+.healthBody { padding: 0 22px 12px; }
+.healthRow, .healthSensor { padding: 10px 0; border-block-start: 1px solid var(--line); overflow-wrap: anywhere; }
+.healthRow { display: flex; gap: 8px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.healthRow > div:first-child { flex: 1 1 13rem; }
+.healthRow small, .healthSensor code, .healthSensor small { display: block; }
+.healthRow .actions { margin: 0; }
+.healthDialog { width: min(92vw, 600px); max-width: 92vw; max-height: 85vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain; }
+.healthDialog label:not(.check) { display: grid; width: 100%; margin: 8px 0; min-width: 0; }
+.healthDialog input:not([type=checkbox]), .healthDialog select { width: 100%; min-width: 0; }
+.healthDialog .check input { flex-shrink: 0; }
+.healthDialog fieldset { border: 1px solid var(--line); border-radius: 12px; margin: 12px 0; padding: 8px 13px 12px; min-width: 0; }
+.healthDialog legend { padding: 0 5px; font-weight: 650; }
+.healthInstant, .healthPair { display: grid; gap: 0 10px; align-items: end; }
+.healthInstant { grid-template-columns: minmax(0, 1fr) minmax(84px, .45fr); }
+.healthPair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.healthDialog .healthError:not(:empty) { background: #fff0e9; color: #852819; border-radius: 8px; padding: 8px 12px; }
+.healthDialog button[data-health="clear-source"] { font-size: .85rem; margin-top: 6px; }
+@media (max-width: 460px) {
+  .healthPanel > details > summary { padding: 14px; }
+  .healthBody { padding-inline: 14px; }
+  .healthDialog { padding: 15px; }
+  .healthDialog fieldset { padding-inline: 8px; }
+  .healthDialog input, .healthDialog select { font-size: 16px; }
+  .healthInstant { grid-template-columns: minmax(0, 1fr) 86px; }
+}

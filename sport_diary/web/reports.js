@@ -6,6 +6,8 @@ function autoEnergyRule(profile,stored){
   return {mode:"auto",height:Number(data.height),birth:data.birth,age:Number(data.age),sex:data.sex,
     factor:stored?.mode==="auto"?stored.factor:1.2};
 }
+const healthReports=typeof module==="undefined"?SportHealth:require("./health.js");
+const goalReports=typeof module==="undefined"?SportGoals:require("./goals.js");
 // All report dates are calendar days in the diary's local time.
 function reportDate(d){
   return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-");
@@ -220,9 +222,11 @@ function diaryReport(state,scale,entity,anchor,period,today=energyLogic.diaryTim
     if(!days.has(day))days.set(day,{day,meals:0,kcal:0,unknown:0,workouts:0,sessions:[],sets:0,reps:0,volume:0,minutes:0,points:0,awards:[],exercises:new Map()});
     return days.get(day);
   }
-  for(const [day,rows] of foodByDate(state)){
+  const foodDays=foodByDate(state);
+  for(const [day,rows] of foodDays){
     if(day>end)continue;
     const d=entry(day),nutrition=dayIntake(rows.meals,rows.supps);
+    d.foodCount=intakePortions.recordedFoodCount(rows.meals);
     d.nutrition=nutrition;d.meals=nutrition.count;d.kcal=nutrition.known[0];d.unknown=nutrition.missing[0];
   }
   for(const w of state.workouts||[]){
@@ -273,6 +277,9 @@ function diaryReport(state,scale,entity,anchor,period,today=energyLogic.diaryTim
   }
   // A daily report also shows the current week's counters. Earlier empty weeks only
   // contribute rest points, so count their otherwise unrepresented days in bulk.
+  const observations=healthReports.prepare(state);
+  const healthDates=new Set(observations.dates());
+  for(const day of healthDates)if(day<=end)entry(day);
   const weekStart=monday(anchor);
   for(let day=weekStart;day<=end;day=shiftDay(day,1))entry(day);
   for(let day=start;day<=end;day=shiftDay(day,1))entry(day);
@@ -301,22 +308,28 @@ function diaryReport(state,scale,entity,anchor,period,today=energyLogic.diaryTim
     const kg=weight?.kg||d.sessions.map(s=>energyLogic.workoutWeightAtStart(s.workout,state,scale,entity)).find(Boolean);
     d.balance=null;d.base=maintenance(usableRule,d.day,kg);d.maintenance=d.base;
     d.active=null;d.energyMode=usableRule.mode;
-    if(usableRule.mode==="auto"&&d.base!=null){
-      let extra=0;
-      for(const {workout:w,fraction} of d.sessions){
-        const bodyKg=energyLogic.workoutWeightAtStart(w,state,scale,entity);
-        const session=energyLogic.workoutEnergy(w,bodyKg);
-        if(session.gross==null){extra=null;break}
-        extra+=fraction*Math.max(0,session.gross-d.base*session.minutes/1440);
-      }
-      d.active=extra==null?null:Math.round(extra);
-      d.maintenance=d.active==null?null:d.base+d.active;
+    if(usableRule.mode==="auto"){
+      const entries=d.sessions.map(({workout,fraction})=>{
+        const bodyKg=energyLogic.workoutWeightAtStart(workout,state,scale,entity);
+        const session=energyLogic.workoutEnergy(workout,bodyKg);
+        const active=session.gross==null||d.base==null?null:fraction*Math.max(0,session.gross-d.base*session.minutes/1440);
+        return {workout,fraction,active};
+      });
+      const estimate=observations.expenditure(d.day,d.base,entries);
+      d.maintenance=estimate.total;d.active=estimate.active;d.base=estimate.base;
+      d.energyMethod=estimate.method;d.energyCoverage=estimate.coverage;
+      d.energyReceivedAt=estimate.receivedAt;
+    }
+    if(healthDates.has(d.day)){
+      d.health=observations.day(d.day);
+      if(d.health.sleepPoints)award(d,"Личная цель сна",d.health.sleepPoints);
+      if(d.health.mealPoints)award(d,"Пауза после последней существенной еды",d.health.mealPoints);
     }
     if(d.meals>d.unknown&&d.maintenance!=null)d.balance=Math.round(d.kcal)-d.maintenance;
     const key=monday(d.day);
     const week=weeks.get(key)||{food:0,gym:0,activity:0,joint:false,repeat:false,moves:new Set()};
     weeks.set(key,week);
-    if(d.meals){
+    if(d.foodCount){
       week.food++;loggedFoodDays++;
       foodStreak.current=lastFoodDay===shiftDay(d.day,-1)?foodStreak.current+1:1;
       foodStreak.longest=Math.max(foodStreak.longest,foodStreak.current);lastFoodDay=d.day;
@@ -331,7 +344,7 @@ function diaryReport(state,scale,entity,anchor,period,today=energyLogic.diaryTim
       week.repeat=true;award(d,"Упражнение записано в два разных дня недели",5);unlock(d,"Есть с чем сравнить",5);
     }
     for(const name of d.exercises.keys())week.moves.add(name);
-    if(d.meals&&week.food===7){award(d,"Семь дней питания",15);unlock(d,"Первая полная неделя питания",5)}
+    if(d.foodCount&&week.food===7){award(d,"Семь дней питания",15);unlock(d,"7 дней с записями питания",5)}
     if(!week.joint&&week.food===7&&(week.gym>=2||week.gym>=1&&week.activity===7)){
       week.joint=true;award(d,"Полная неделя питания, тренировок и отдыха",20);unlock(d,"Неделя целиком",5);
     }
@@ -347,8 +360,11 @@ function diaryReport(state,scale,entity,anchor,period,today=energyLogic.diaryTim
     mergeIntake(nutrition,row.nutrition);
     for(const field of Object.keys(doses))doses[field]+=row.nutrition.doses[field];
   }
-  return {start,end,today,rows,weights,nutrition,doses,latest:weightRows.at(-1),exerciseNames,workouts:sum("workouts"),sets:sum("sets"),reps:sum("reps"),volume:sum("volume"),
-    minutes:Math.round(sum("minutes")),meals:sum("meals"),kcal:Math.round(sum("kcal")),unknown:sum("unknown"),foodDays:rows.filter(d=>d.meals>0).length,
+  const nutritionGoals=goalReports.report(state,start,end,today,weightRows,foodDays,dayIntake);
+  const health=observations.period(start,end);
+  return {start,end,today,rows,weights,nutrition,doses,nutritionGoals,health,latest:weightRows.at(-1),exerciseNames,workouts:sum("workouts"),sets:sum("sets"),reps:sum("reps"),volume:sum("volume"),
+    minutes:Math.round(sum("minutes")),meals:sum("meals"),kcal:Math.round(sum("kcal")),unknown:sum("unknown"),foodDays:rows.filter(d=>d.foodCount).length,
+    loggedProteinDays:rows.filter(d=>d.foodCount&&d.nutrition?.totals[1]!=null).length,
     balances,partialBalances,knownBalances,balance:balances.length?balances.reduce((n,d)=>n+d.balance,0):null,
     deficit:knownBalances.reduce((n,d)=>n+Math.max(0,-d.balance),0),surplus:knownBalances.reduce((n,d)=>n+Math.max(0,d.balance),0),
     periodPoints:sum("points"),points,foodStreak,achievements:[...achievements],week:weeks.get(monday(anchor))||{food:0,gym:0,activity:0,repeat:false,joint:false},
