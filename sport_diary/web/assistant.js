@@ -6,6 +6,36 @@
   const pendingKey = "sport:nutrition:pending:" + location.pathname;
   let pending = sessionStorage.getItem(pendingKey), selected = {}, searchGeneration = 0, dayGeneration = 0;
   let visibleMeals = [], correction = null;
+  let proteinEnabled = false, contextGeneration = 0, correctionUnavailable = false;
+  const proteinItem = item => item && (["protein", "protein_mix"].includes(item.productKind) || item.proteinDetails);
+  function updateAvailability() {
+    const blocked = !proteinEnabled && Boolean(el("product-kind").value || proteinItem(selected));
+    el("product-kind-label").hidden = !proteinEnabled;
+    el("protein-fields").hidden = !proteinEnabled || !el("product-kind").value;
+    el("assistant-form").hidden = blocked;
+    el("unavailable-food").hidden = !blocked;
+    el("preference-panel").hidden = blocked || el("one-off").checked;
+    const hiddenCorrection = correctionUnavailable || !proteinEnabled && Boolean(proteinItem(correction));
+    el("correction-form").hidden = hiddenCorrection;
+    el("unavailable-correction").hidden = !hiddenCorrection;
+  }
+  function assertAvailable(item) {
+    if (!proteinEnabled && proteinItem(item)) throw Error("Этот продукт отключён в настройках профиля. Ввод остаётся в форме.");
+  }
+  async function refreshContext() {
+    const token = ++contextGeneration, context = await request("nutrition/context");
+    if (token !== contextGeneration) return context;
+    const changed = proteinEnabled !== (context.proteinEnabled === true);
+    proteinEnabled = context.proteinEnabled === true;
+    updateAvailability();
+    if (changed) {
+      ++doseGeneration;
+      el("card-results").replaceChildren();
+      el("receipt").textContent = "";
+      if (el("day").value) await showDay(true);
+    }
+    return context;
+  }
 
   function operationId() {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -43,7 +73,7 @@
         macros(meal.oil.nut.map(v => v == null ? null : v * meal.oil.grams / 100)) + ")" : "")
       + (meal.estimateNote ? " · Приблизительно: " + meal.estimateNote : "");
   }
-  async function showDay() {
+  async function showDay(preserveCorrection = false) {
     const date = el("day").value, token = ++dayGeneration;
     el("summary").replaceChildren();
     if (!date) return;
@@ -52,8 +82,11 @@
     visibleMeals = data.meals;
     const option = (value, label) => {const o = document.createElement("option"); o.value = value; o.textContent = label; return o;};
     el("proposal-meal").replaceChildren(option("", "Выберите приём"), ...visibleMeals.map(m => option(m.id, describe(m))));
-    if (correction && visibleMeals.some(m => m.id === correction.id)) el("proposal-meal").value = correction.id;
+    if (correction && visibleMeals.some(m => m.id === correction.id)) {
+      el("proposal-meal").value = correction.id; correctionUnavailable = false;
+    } else if (correction && preserveCorrection) correctionUnavailable = true;
     else clearCorrection();
+    updateAvailability();
     const items = data.meals.map(m => paragraph(describe(m)));
     if(data.count)items.push(paragraph("Клетчатка · "+(data.fiber?.knownCount?num.format(data.fiber.known)+" г":"нет данных")+
       " · известно для "+(data.fiber?.knownCount||0)+" из "+data.count+" порций"));
@@ -96,12 +129,12 @@
   let doseGeneration=0;
   async function showProteinFields(){
     const kind=el("product-kind").value, day=el("date").value, token=++doseGeneration;
-    el("protein-fields").hidden=!kind;
+    updateAvailability();
     el("protein-contribution").hidden=kind!=="protein_mix";
     const select=el("protein-dose");
     const option=(value,text)=>{const node=document.createElement("option");node.value=value;node.textContent=text;return node};
     select.replaceChildren(option("","Отдельный приём"));
-    if(!kind||!day)return;
+    if(!proteinEnabled||!kind||!day)return;
     const rows=await request("nutrition/protein-doses/"+encodeURIComponent(day));
     if(token!==doseGeneration)return;
     for(const row of rows)select.append(option(row.id,[row.time,row.servings==null?"Количество неизвестно":num.format(row.servings)+" саше"].filter(Boolean).join(" · ")));
@@ -112,6 +145,7 @@
     showProteinFields().catch(err=>message(err.message));
   }
   function pick(card,focusTime=true) {
+    assertAvailable(card);
     clearPortionExtras();
     selected = card;
     setProteinInputs(card);
@@ -132,6 +166,7 @@
   async function search() {
     const q = el("lookup").value.trim(), token = ++searchGeneration;
     const results = el("card-results"); results.replaceChildren(); message("");
+    await refreshContext();
     const personal = await request("nutrition/cards?q=" + encodeURIComponent(q));
     let choices = personal;
     if (q) {
@@ -145,10 +180,10 @@
       }
     }
     if (token !== searchGeneration) return;
-    for (const item of distinctFoods(choices, 30)) {
+    for (const item of distinctFoods(choices.filter(item=>proteinEnabled||!proteinItem(item)), 30)) {
       const b = document.createElement("button"); b.type = "button";
       b.textContent = item.name + " · " + macros(item.nut) + (item.basis === "piece" ? " на штуку" : " на 100 " + (item.unit || "г"));
-      b.addEventListener("click", () => pick(item)); results.append(b);
+      b.addEventListener("click", async () => {try {await refreshContext(); pick(item);} catch(err) {message(err.message);}}); results.append(b);
     }
     if (!results.children.length) results.append(paragraph("Карточек не найдено. Можно внести блюдо вручную."));
   }
@@ -210,6 +245,7 @@
     el("date").value = el("day").value; el("save").hidden = true;
     for (let i = 0; i < 4; i++) el("oil" + i).required = false;
     updatePreview();
+    updateAvailability();
   }
   async function save(ev) {
     ev.preventDefault();
@@ -217,6 +253,9 @@
     if (button.disabled) return;
     button.disabled = true; message("");
     try {
+      await refreshContext();
+      assertAvailable(selected);
+      assertAvailable({productKind:el("product-kind").value});
       if (!pending) {
         pending = operationId();
         sessionStorage.setItem(pendingKey, pending);
@@ -240,9 +279,11 @@
   }
   function clearCorrection() {
     correction = null;
+    correctionUnavailable = false;
     el("correction-form").reset();
     el("proposal-current").textContent = "";
     el("proposal-basis-label").textContent = "КБЖУ на исходное основание";
+    updateAvailability();
   }
   function labelValues(id) {
     const values = el(id).value.trim().split(/\s+/).map(s => SportPortions.number(s, "КБЖУ", true));
@@ -250,6 +291,8 @@
     return values;
   }
   function correctionBody() {
+    if (correctionUnavailable) throw Error("Выбранный приём сейчас недоступен. Незавершённая поправка остаётся в форме.");
+    assertAvailable(correction);
     if (!correction || !el("proposal-meal").value) throw Error("Выберите сохранённый приём.");
     const changes = {};
     if (el("proposal-count").value) changes.count = el("proposal-count").valueAsNumber;
@@ -269,13 +312,15 @@
     return {kind:"meal", targetId:correction.id, version:correction.version, reason:el("proposal-reason").value, changes};
   }
   function preferenceBody() {
+    assertAvailable(selected);
+    assertAvailable({productKind:el("product-kind").value});
     if (el("one-off").checked) throw Error("Для разовой записи личная карточка не создаётся.");
     const changes = {mode:el("preference-mode").value};
     if (el("preference-count").value) changes.count = el("preference-count").valueAsNumber;
     const body = {kind:"preference", reason:el("preference-reason").value, changes};
     if (selected.id && selected.version) return {...body, targetId:selected.id, version:selected.version};
-    const {name, unit, basis, sizes, pieceName, nut, fiber, code, origin} = payload();
-    return {...body, card:{name, unit, basis, sizes, pieceName, nut, fiber, code, origin}};
+    const {name, unit, basis, sizes, pieceName, nut, fiber, code, origin, productKind} = payload();
+    return {...body, card:{name, unit, basis, sizes, pieceName, nut, fiber, code, origin, ...(productKind?{productKind}:{})}};
   }
   async function sendProposal(event, buttonId, getBody) {
     event.preventDefault();
@@ -283,6 +328,7 @@
     if (button.disabled) return;
     button.disabled = true;
     try {
+      await refreshContext();
       const body = getBody();
       body.operationId = sessionStorage.getItem(storageKey) || operationId();
       sessionStorage.setItem(storageKey, body.operationId);
@@ -307,7 +353,9 @@
   });
   el("correction-form").addEventListener("submit", ev => sendProposal(ev, "send-correction", correctionBody));
   el("preference-form").addEventListener("submit", ev => sendProposal(ev, "send-preference", preferenceBody));
-  el("one-off").addEventListener("change", () => { el("preference-panel").hidden = el("one-off").checked; });
+  el("one-off").addEventListener("change", updateAvailability);
+  el("clear-unavailable-food").addEventListener("click", finish);
+  for (const button of document.querySelectorAll("[data-refresh-availability]")) button.addEventListener("click", () => refreshContext().catch(err=>message(err.message)));
   el("assistant-form").addEventListener("submit", save);
   el("assistant-form").addEventListener("input", () => { el("save").hidden = false; updatePreview(); });
   el("assistant-form").addEventListener("change", updatePreview);
@@ -321,7 +369,7 @@
   });
   el("mode").addEventListener("change", () => { el("size").value = selected.sizes?.[el("mode").value] ?? ""; sizeFields(); });
   el("basis").addEventListener("change", clearNutrients);
-  for(const id of ["product-kind","date"])el(id).addEventListener("change",()=>showProteinFields().catch(err=>message(err.message)));
+  for(const id of ["product-kind","date"])el(id).addEventListener("change",()=>refreshContext().then(showProteinFields).catch(err=>message(err.message)));
   el("unit").addEventListener("change", () => {
     selected = {...selected, sizes: {}};
     el("size").value = ""; el("piece-size").value = "";
@@ -341,7 +389,7 @@
     for (let i = 0; i < 4; i++) el("oil" + i).required = el("oil").valueAsNumber > 0;
   });
   (async () => {
-    const {today, zone} = await request("nutrition/context");
+    const {today, zone} = await refreshContext();
     el("day").value = today; el("date").value = today; el("zone").textContent = zone ? "(" + zone + ")" : "";
     if (pending) {
       try { await readBack("nutrition-" + pending); finish(); return; }

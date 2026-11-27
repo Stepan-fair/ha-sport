@@ -18,7 +18,7 @@ function form(responses) {
     return fields.get(id);
   }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "web/assistant.js"), "utf8"), {
-    document:{getElementById:field, createElement:element}, location:{pathname:"/"},
+    document:{getElementById:field, createElement:element,querySelectorAll:()=>[field("refresh-availability")]}, location:{pathname:"/"},
     crypto:require("node:crypto").webcrypto,SportPortions:require("./web/portions.js"),
     distinctFoods:require("./web/foods.js").distinctFoods,
     sessionStorage:{getItem:()=>responses&&typeof responses!=="function" ? "pending" : null, removeItem(){}, setItem(){}},
@@ -80,6 +80,7 @@ test("Выбор йогурта очищает масло и пометки яи
   field("search-form").dispatchEvent(new Event("submit"));
   await new Promise(setImmediate);
   field("card-results").children[0].dispatchEvent(new Event("click"));
+  await new Promise(setImmediate);
   assert.equal(field("oil").value,"");
   for(let i=0;i<4;i++){assert.equal(field("oil"+i).value,"");assert.equal(field("oil"+i).required,false);}
   assert.match(field("assistant-preview").textContent,/60 ккал/);
@@ -129,4 +130,80 @@ test("Перечитанная порция показывает масло, а 
   assert.match(summary, /0 г углеводов[^·]*неизвестн/);
   assert.match(summary, /Белок из добавок.*22 г/);
   assert.match(field("receipt").textContent, /[Мм]асло.*5 г.*45 ккал/);
+});
+
+test("Отключённый протеин скрывает выбор и блокирует старую форму без потери введённых значений",async()=>{
+  const day="2026-02-14",sent=[],proposals=[];let enabled=true;
+  const {field,change}=form((key,opts)=>{
+    if(key==="nutrition/context")return {today:day,proteinEnabled:enabled};
+    if(key.startsWith("nutrition/protein-doses/"))return [{id:"dose",time:"09:00",servings:1}];
+    if(key==="nutrition/meals"){sent.push(JSON.parse(opts.body));return {id:"saved"};}
+    if(key==="nutrition/proposals"){proposals.push(JSON.parse(opts.body));return {id:"proposal"};}
+    if(key==="nutrition/meals/saved")return {id:"saved",name:"Шейк",date:day+"T10:00",amount:100,unit:"г",totals:[157,12.7,11.5,.8]};
+    return {day,meals:[],totals:[0,0,0,0]};
+  });
+  await new Promise(setImmediate);
+  assert.equal(field("product-kind-label").hidden,false);
+  field("name").value="Шейк";field("count").value="100";field("time").value="10:00";
+  change("product-kind","protein_mix");
+  await new Promise(setImmediate);
+  field("protein-servings").value="1";field("protein-dose").value="dose";
+  enabled=false;
+  field("assistant-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(sent.length,0);
+  assert.equal(field("product-kind-label").hidden,true);
+  assert.equal(field("protein-fields").hidden,true);
+  assert.equal(field("assistant-form").hidden,true);
+  assert.equal(field("unavailable-food").hidden,false);
+  assert.equal(field("name").value,"Шейк");assert.equal(field("protein-dose").value,"dose");
+  field("preference-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(sent.length,0);assert.equal(proposals.length,0);assert.match(field("message").textContent,/отключ/);
+  enabled=true;
+  field("refresh-availability").dispatchEvent(new Event("click"));
+  await new Promise(setImmediate);
+  assert.equal(field("assistant-form").hidden,false);
+  assert.equal(field("protein-servings").value,"1");assert.equal(field("protein-dose").value,"dose");
+  field("preference-mode").value="base";field("preference-count").value="100";field("preference-reason").value="Обычная порция";
+  field("preference-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(proposals.length,1);assert.equal(proposals[0].card.productKind,"protein_mix");
+  field("assistant-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(sent.length,1);assert.equal(sent[0].productKind,"protein_mix");assert.equal(sent[0].linkDoseId,"dose");
+});
+
+test("Помощник сохраняет черновик поправки связанного приёма, когда владелец отключает категорию",async()=>{
+  const day="2026-02-14",sent=[];let enabled=true;
+  const meal={id:"linked",version:"v",name:"Связанный напиток",date:day+"T10:00",amount:100,unit:"г",totals:[100,22,1,3]};
+  const {field,change}=form((key,opts)=>{
+    if(key==="nutrition/context")return {today:day,proteinEnabled:enabled};
+    if(key==="nutrition/proposals"){sent.push(JSON.parse(opts.body));return {id:"proposal"};}
+    return {day,meals:enabled?[meal]:[],totals:[100,22,1,3]};
+  });
+  await new Promise(setImmediate);
+  change("proposal-meal","linked");field("proposal-count").value="150";field("proposal-reason").value="Уточнён объём";
+  enabled=false;
+  field("correction-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(sent.length,0);assert.equal(field("correction-form").hidden,true);
+  assert.equal(field("proposal-count").value,"150");assert.equal(field("proposal-reason").value,"Уточнён объём");
+  assert.doesNotMatch(field("summary").children.map(n=>n.textContent).join(" "),/Связанный напиток/);
+  enabled=true;
+  field("refresh-availability").dispatchEvent(new Event("click"));
+  await new Promise(setImmediate);
+  assert.equal(field("correction-form").hidden,false);assert.equal(field("proposal-meal").value,"linked");
+  assert.equal(field("proposal-count").value,"150");
+  field("correction-form").dispatchEvent(new Event("submit"));
+  await new Promise(setImmediate);
+  assert.equal(sent.length,1);assert.equal(sent[0].changes.count,150);
+});
+
+test("Первое открытие с отключённым протеином оставляет обычную еду доступной",async()=>{
+  const {field}=form(key=>key==="nutrition/context"?{today:"2026-02-14",proteinEnabled:false}:{meals:[],totals:[0,0,0,0]});
+  await new Promise(setImmediate);
+  assert.equal(field("product-kind-label").hidden,true);
+  assert.equal(field("protein-fields").hidden,true);
+  assert.equal(field("assistant-form").hidden,false);
 });

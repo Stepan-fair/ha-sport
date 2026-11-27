@@ -36,6 +36,9 @@ class DisabledFood(unittest.TestCase):
             {"names": ["Протеин"], "date": day+"T15:00", "servings": 1, "perServing": [120, 22, 1, 3]}])
         data["products"] = [{"name": "Рецепт порошка", "productKind": "protein", "unit": "г", "nut": [400, 75, 4, 10]}]
         self.profile("person1", {"rev": 0, "data": data})
+        context = self.helper("/nutrition/context")[1]
+        self.assertEqual(set(context), {"today", "zone", "proteinEnabled"})
+        self.assertTrue(context["proteinEnabled"])
         ordinary = {**self.meal, "name": "Протеиновый йогурт без добавки", "oneOff": False}
         self.assertEqual(self.helper("/nutrition/meals", ordinary)[0], 201)
         token = self.helper("/nutrition/protein-doses/"+day)[1][0]["id"]
@@ -50,6 +53,7 @@ class DisabledFood(unittest.TestCase):
         before = self.helper("/nutrition/days/"+day)[1]
         self.assertIn("supplementProtein", before)
         self.enable(False)
+        self.assertFalse(self.helper("/nutrition/context")[1]["proteinEnabled"])
         persisted = deepcopy(self.profile("person1")["data"])
         after = self.helper("/nutrition/days/"+day)[1]
         for key in ("known", "totals", "missing", "count"):
@@ -81,10 +85,31 @@ class DisabledFood(unittest.TestCase):
         self.assertEqual(self.profile("person2")["data"], {})
 
     def test_missing_settings_do_not_enable_protein(self):
+        self.assertFalse(self.helper("/nutrition/context")[1]["proteinEnabled"])
         protein = {**self.meal, "productKind": "protein"}
         self.assertEqual(self.helper("/nutrition/meals", protein)[0], 400)
         self.assertEqual(self.profile("person1")["data"], {})
         self.assertEqual(self.helper("/nutrition/meals", self.meal)[0], 201)
+
+    def test_new_recipe_preference_preserves_category_after_owner_approval(self):
+        self.profile("person1", {"rev": 0, "data": {"profile": {"supps": ["Протеин"]}}})
+        body = {"kind": "preference", "operationId": str(uuid4()), "reason": "Обычная порция",
+                "card": {"name": "Новый рецепт", "unit": "г", "nut": [100, 22, 1, 3], "productKind": "protein_mix"},
+                "changes": {"mode": "base", "count": 100}}
+        status, proposal = self.helper("/nutrition/proposals", body)
+        self.assertEqual(status, 201)
+        self.assertEqual(json.loads(self.call("/proposals/person1")[1])[0]["after"]["productKind"], "protein_mix")
+        invalid = {**body, "operationId": str(uuid4()), "card": {**body["card"], "productKind": "unsupported"}}
+        self.assertEqual(self.helper("/nutrition/proposals", invalid)[0], 400)
+        self.enable(False)
+        self.assertEqual(self.decide(proposal, "approve")[0], 400)
+        self.assertEqual(self.helper("/nutrition/proposals", {**body, "operationId": str(uuid4())})[0], 400)
+        self.enable(True)
+        self.assertEqual(self.decide(proposal, "approve")[0], 200)
+        self.assertEqual(self.helper("/nutrition/cards")[1][0]["productKind"], "protein_mix")
+        self.enable(False)
+        self.assertEqual(self.helper("/nutrition/cards")[1], [])
+        self.assertEqual(self.profile("person1")["data"]["products"][0]["productKind"], "protein_mix")
 
 
 class DisabledHealthConfirmation(unittest.TestCase):

@@ -395,7 +395,7 @@ def validate_preference(card, change):
 
 
 def proposed_card(card):
-    allowed = {"name", "unit", "nut", "basis", "pieceName", "sizes", "code", "origin", "fiber"}
+    allowed = {"name", "unit", "nut", "basis", "pieceName", "sizes", "code", "origin", "fiber", "productKind"}
     if not isinstance(card, dict) or set(card) - allowed:
         raise BadPortion("Недопустимые поля новой карточки.")
     basis = card.get("basis", "100")

@@ -32,6 +32,7 @@
         <label>Причина поправки<input id="proposal-reason" maxlength="500" required></label>
         <button id="send-correction">Отправить владельцу на подтверждение</button>
       </form>
+      <div id="unavailable-correction" hidden><p>Выбранный приём сейчас недоступен. Незавершённая поправка остаётся в форме.</p><button type="button" data-refresh-availability>Проверить доступность</button></div>
     </details>
   </article>
   <article>
@@ -45,7 +46,7 @@
       <label>Продукт или блюдо<input id="name" required maxlength="240"></label>
       <label>Приём пищи, по желанию<input id="meal-group" maxlength="80" list="meal-groups" placeholder="Например, завтрак"></label>
       <datalist id="meal-groups"><option value="Завтрак"></option><option value="Обед"></option><option value="Ужин"></option><option value="Перекус"></option></datalist>
-      <label>Вид продукта<select id="product-kind"><option value="">Обычная еда</option><option value="protein">Протеиновая добавка</option><option value="protein_mix">Блюдо или напиток с протеиновой добавкой</option></select></label>
+      <label id="product-kind-label" hidden>Вид продукта<select id="product-kind"><option value="">Обычная еда</option><option value="protein">Протеиновая добавка</option><option value="protein_mix">Блюдо или напиток с протеиновой добавкой</option></select></label>
       <div id="protein-fields" hidden>
         <p>КБЖУ продукта введите ниже на 100 г/мл или одну штуку, согласно выбранному основанию. Здесь укажите вклад порошка во всей съеденной порции, если он известен.</p>
         <label>Саше в съеденной порции<input id="protein-servings" type="number" min="0.000001" step="any"></label>
@@ -84,6 +85,7 @@
       <p id="assistant-preview" aria-live="polite"></p>
       <div class="actions"><button class="primary" id="save" hidden>Сохранить порцию</button></div>
     </form>
+    <div id="unavailable-food" hidden><p>Выбранный продукт отключён в настройках профиля. Ввод остаётся в форме и не будет отправлен. Для доступа владелец может включить продукт снова.</p><button type="button" data-refresh-availability>Проверить доступность</button><button type="button" id="clear-unavailable-food">Очистить форму</button></div>
     <details id="preference-panel"><summary>Предложить обычную единицу карточки</summary>
       <form id="preference-form">
         <p>Выберите продукт или заполните его этикетку выше. Владелец проверит изменение в разделе «Питание».</p>

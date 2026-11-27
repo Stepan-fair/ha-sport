@@ -473,7 +473,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.food_post(who, append_meal if parts[1] == "meals" else create_proposal)
         if parts == ["nutrition", "context"]:
             now = datetime.now().astimezone()
-            return self.reply(200, {"today": now.date().isoformat(), "zone": now.tzname()})
+            with closing(open_diary()) as db:
+                enabled = nutrition.protein_enabled(read_state(db, who)["data"])
+            return self.reply(200, {"today": now.date().isoformat(), "zone": now.tzname(), "proteinEnabled": enabled})
         with closing(open_diary()) as db:
             state = (profile_with_health(db, who, settings) if len(parts) == 3 and parts[1] == "days"
                      else read_state(db, who))["data"]
