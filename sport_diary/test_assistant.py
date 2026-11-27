@@ -16,7 +16,7 @@ class NutritionAssistant(unittest.TestCase):
     def test_linked_shake_receipt_history_projection_and_profile_boundaries(self):
         day = self.meal["date"][:10]
         date = self.meal["date"]
-        self.profile("person1", {"rev": 0, "data": {"supps": [{"date": day, "period": "Утро", "names": ["Протеин", "PRIVATE"],
+        self.profile("person1", {"rev": 0, "data": {"profile": {"supps": ["Протеин"]}, "supps": [{"date": day, "period": "Утро", "names": ["Протеин", "PRIVATE"],
                             "servings": 1, "perServing": [120, 22, 1, 4], "powderPerServing": 30}],
                         "meals": [{"date": date, "name": "Творог", "unit": "г", "amount": 90,
                                    "nut": [100, 16, 0, 2], "totals": [95, None, 0, None]}]}})
@@ -277,7 +277,7 @@ class NutritionAssistant(unittest.TestCase):
     def test_energy_protein_and_portion_units_use_owner_report(self):
         day = self.meal["date"][:10]
         self.profile("person1", {"rev": 0, "data": {
-            "profile": {"sex": "Мужской", "height": 180, "age": 30},
+            "profile": {"sex": "Мужской", "height": 180, "age": 30, "supps": ["Протеин"]},
             "weights": [{"kg": 80, "source": "manual", "date": day + "T07:00"}],
             "supps": [{"date": day, "names": ["Протеин"], "servings": 1, "perServing": [None, 22, None, None]}],
             "workouts": [{"date": day + "T12:00", "end": day + "T12:30", "kg": 80,

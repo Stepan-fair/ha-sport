@@ -21,12 +21,25 @@ const SportVisibility=(()=>{
   }
   function dailyMetric(state,key,day){return section(state,"activity",day)&&config(state,day).dailyMetrics[key]===true}
   function supplement(state,name){return (state.profile?.supps||[]).some(n=>logic.canonicalSupp(n)===logic.canonicalSupp(name))}
+  function food(state,item){
+    if(!item||supplement(state,"Протеин"))return true;
+    const protein=item.productKind==="protein"||item.productKind==="protein_mix"||item.proteinDetails||
+      (state.supps||[]).some(row=>(row.names||[]).some(name=>logic.canonicalSupp(name)==="Протеин")&&
+        (item.id&&row.mealId===item.id||item.supplementEventId&&row.id===item.supplementEventId));
+    return !protein;
+  }
+  function assertFood(state,item){
+    if(!food(state,item))throw Error("Этот продукт отключён в настройках профиля. Включи его перед записью или исправлением.");
+  }
   function exercise(state,name){return (state.profile?.equipment||[]).includes(name)}
   function doseMetric(state,key){
     const kind=/^(creatine|monohydrate)/.test(key)?"Креатин":/^(protein|powder|milk)/.test(key)?"Протеин":/^(omega|fishOil|epa|dha)/.test(key)?"Омега-3":/^iron/.test(key)?"Железо":null;
     return !kind||supplement(state,kind);
   }
-  function issue(state,row){return row.kind!=="dose"||supplement(state,row.label)}
+  function issue(state,row){
+    if(row.kind==="dose")return supplement(state,row.label);
+    return row.kind!=="meal"||food(state,(state.meals||[]).find(meal=>meal.id===row.id));
+  }
   function save(state,day,next){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+"T12:00Z"))||new Date(day+"T12:00Z").toISOString().slice(0,10)!==day||day>logic.diaryTime().slice(0,10))throw Error("Выбери текущую или прошлую дату настройки.");
     const history=state.visibilityHistory||={};
@@ -46,6 +59,6 @@ const SportVisibility=(()=>{
     if(key&&!section(state,key))throw Error("Этот раздел отключён в настройках профиля. Включи его перед записью.");
     if(key==="activity"&&metric&&!dailyMetric(state,metric))throw Error("Этот показатель отключён в настройках профиля.");
   }
-  return {sections,metrics,normalize,config,section,dailyMetric,supplement,exercise,doseMetric,issue,save,assertAction};
+  return {sections,metrics,normalize,config,section,dailyMetric,supplement,food,assertFood,exercise,doseMetric,issue,save,assertAction};
 })();
 if(typeof module!=="undefined")module.exports=SportVisibility;

@@ -785,6 +785,7 @@ function updatePortionPreview(){
  if(tab!==2)return;
  const panel=$("portion-preview");
  if(!panel)return;
+ if(!updateFoodAvailability())return;
  $("food-basis-label").textContent=SportPortions.nutritionBasisLabel({basis:val("food-basis"),unit:val("unit"),pieceName:val("piece-name")});
  $("unit").dataset.previousUnit=val("unit");
  $("card-options").hidden=$("one-off").checked;
@@ -800,6 +801,7 @@ function updatePortionPreview(){
  }catch(e){panel.textContent=e.message}
 }
 function selectFoodCard(item,repeat=false){
+ SportVisibility.assertFood(state,item);
  const pref=repeat?item.portion:item.preferred;
  const mode=pref?.mode||(!repeat&&(item.pieceName||item.basis==="piece")?"piece":"base");
  const count=pref?.count??(repeat?item.amount:!pref&&mode==="base"?100:"");
@@ -822,22 +824,23 @@ function selectFoodCard(item,repeat=false){
  $("amount").focus();$("amount").select();
 }
 function mealForm(meal){
+ const protein=SportVisibility.supplement(state,"Протеин");
  const card=meal||{},previous=meal&&(state.products||[]).find(x=>SportPortions.sameProduct(x,meal)),prefs=previous?.preferred;
  const sizes={...card.sizes};
  if(meal?.portion?.size && meal.portion.mode!=="base")sizes[meal.portion.mode]=meal.portion.size;
  return '<div id="meal-form"><input type="hidden" id="food-origin" value="'+esc(card.origin||(meal?"Из дневника":"Вручную"))+'">'+
    dt("mealdate","Когда",meal?.date||stamp())+field("product","Продукт или блюдо","text",card.name||"",'maxlength="150"')+
    field("meal-group","Приём пищи, по желанию","text",meal?.mealGroup||"",'list="meal-groups" maxlength="80" placeholder="Например, завтрак"')+
-   '<datalist id="meal-groups">'+[...new Set(["Завтрак","Обед","Ужин","Перекус",...state.meals.filter(m=>m.date.startsWith(selectedDay)&&m.mealGroup).map(m=>m.mealGroup)])].map(g=>'<option value="'+esc(g)+'"></option>').join("")+'</datalist>'+
+   '<datalist id="meal-groups">'+[...new Set(["Завтрак","Обед","Ужин","Перекус",...state.meals.filter(m=>m.date.startsWith(selectedDay)&&m.mealGroup&&SportVisibility.food(state,m)).map(m=>m.mealGroup)])].map(g=>'<option value="'+esc(g)+'"></option>').join("")+'</datalist>'+
    foodSelect("portion-mode","Как указать количество",portionModes,meal?.portion?.mode||"base")+
    decimalField("amount","Съедено",meal?.portion?.count??meal?.amount??100)+
-   foodSelect("product-kind","Вид продукта",proteinKinds,card.productKind||"")+
+   '<div id="product-kind-options"'+(protein?'':' hidden')+'>'+foodSelect("product-kind","Вид продукта",proteinKinds,card.productKind||"")+'</div>'+
    '<div id="protein-portion"'+(card.productKind?'':' hidden')+'><p>Вклад порошка в фактически съеденную порцию. Общие КБЖУ блюда укажи с учётом всех ингредиентов.</p>'+
    decimalField("protein-servings","Число саше, если известно",meal?.proteinDetails?.servings)+
    decimalField("protein-powderGrams","Масса порошка, г",meal?.proteinDetails?.powderGrams)+
    decimalField("protein-proteinGrams","Белок из порошка в смешанной порции, г",meal?.proteinDetails?.proteinGrams)+
    '<label>Связь с отметкой протеина<select id="protein-dose"><option value="">Отдельный приём</option>'+
-   state.supps.flatMap((row,i)=>row.date.slice(0,10)===selectedDay&&row.names.some(n=>canonicalSupp(n)==="Протеин")&&(!row.mealId||row.mealId===meal?.id||!state.meals.some(m=>m.id===row.mealId))?
+   state.supps.flatMap((row,i)=>protein&&row.date.slice(0,10)===selectedDay&&row.names.some(n=>canonicalSupp(n)==="Протеин")&&(!row.mealId||row.mealId===meal?.id||!state.meals.some(m=>m.id===row.mealId))?
      ['<option value="'+i+'" '+(row.mealId&&row.mealId===meal?.id?'selected':'')+'>'+esc((row.date.slice(11,16)||row.period)+" · "+(row.servings==null?"количество неизвестно":doseNumber(row.servings)+" саше"))+'</option>']:[]).join("")+
    '</select></label></div>'+
    check("Только в дневник",'id="one-off" '+(meal?.oneOff?'disabled':''),meal?.oneOff)+
@@ -862,14 +865,25 @@ function mealForm(meal){
    '<details id="card-options" data-disclosure="food-card"><summary>Настроить личную карточку</summary>'+
    foodSelect("usual-mode","Обычная единица",{"":"Без предпочтения",...portionModes},prefs?.mode||"")+decimalField("usual-count","Обычное количество (по желанию)",prefs?.count)+
    btn("save-food-card","Сохранить настройки карточки")+'</details>'+
-   btn("meal",meal?"Сохранить исправление":"Сохранить порцию",true)+(meal?btn("cancel-meal","Отмена"):"")+'</div>';
+   btn("meal",meal?"Сохранить исправление":"Сохранить порцию",true)+(meal?btn("cancel-meal","Отмена"):"")+'</div><div id="unavailable-food" hidden><p>Выбранный продукт отключён в настройках профиля. Ввод сохранён на этом устройстве и не будет отправлен. Для доступа включи продукт снова.</p>'+btn("cancel-meal","Очистить форму")+'</div>';
+}
+function updateFoodAvailability(){
+ const form=$("meal-form");
+ if(!form)return true;
+ const original=editingMeal&&(state.meals.find(m=>m.id===editingMeal)||editingMealBase&&JSON.parse(editingMealBase));
+ const available=SportVisibility.food(state,original)&&SportVisibility.food(state,{productKind:$("product-kind")?.value});
+ form.hidden=!available;
+ const message=$("unavailable-food");if(message)message.hidden=available;
+ const choices=$("product-kind-options");if(choices)choices.hidden=!SportVisibility.supplement(state,"Протеин");
+ return available;
 }
 function recentPortions(){
- const repeat=SportPortions.recent(state.meals,selectedDay);
+ const repeat=SportPortions.recent(state.meals.filter(m=>SportVisibility.food(state,m)),selectedDay);
  return repeat.length?'<details data-disclosure="recent-meals"><summary>Повторить недавнюю порцию</summary>'+repeat.map(m=>btn("repeat-meal-"+esc(m.id),esc(m.name)+" · "+esc(mealQuantityText(m)))).join("")+"</details>":"";
 }
 function openMealEditor(meal,showLabel=false){
  if(!meal)throw Error("Приём удалён. Заново сверь данные.");
+ SportVisibility.assertFood(state,meal);
  editingMeal=meal.id;editingMealBase=JSON.stringify(meal);
  render();
  if(showLabel)$("food-label").open=true;
@@ -911,8 +925,10 @@ async function refreshProposals(){
  const panel=$("food-proposals"),user=who;
  if(!panel||!people.some(p=>p.id===user&&p.reviewProposals))return;
  try{
-   const proposals=await request("proposals/"+user);
+   const received=await request("proposals/"+user);
    if(who!==user||panel!==$("food-proposals"))return;
+   const proposals=received.filter(p=>SportVisibility.food(state,p.before)&&SportVisibility.food(state,p.after)&&
+     (p.kind!=="meal"||SportVisibility.food(state,state.meals.find(m=>m.id===p.targetId))));
    const pending=proposals.filter(p=>p.status==="pending"),history=proposals.filter(p=>p.status!=="pending");
    const review=p=>proposalDetails(p)+btn("approve-proposal-"+esc(p.id),"Подтвердить",true)+
      btn("reject-proposal-"+esc(p.id),"Отклонить")+(p.kind==="meal"?btn("review-meal-"+esc(p.targetId),"Открыть «Исправить»"):"");
@@ -931,7 +947,9 @@ function food(){
 }
 let foodSearchId=0;
 let foodSearchTimer;
+const availableFoods=items=>items.filter(item=>SportVisibility.food(state,item));
 function showFoodMatches(panel,message,offerOnline){
+ results=availableFoods(results);
  const rows=results.map((item,index)=>{
    const personal=(state.products||[]).includes(item);
    const origin=personal?'Моя карточка':pantry.includes(item)?'<a href="'+esc(item.source)+'" target="_blank" rel="noopener noreferrer">Карточка продукта ↗</a>':item.catalogItem?'Каталог на HA':item.online?'Онлайн · Open Food Facts':'Из дневника';
@@ -958,7 +976,7 @@ async function startFoodSearch(forceOnline){
  clearTimeout(foodSearchTimer);
  const q=val("query").trim(),panel=$("matches"),id=++foodSearchId,profile=who,day=selectedDay;
  if(q.length<2){results=[];showFoodMatches(panel,"Введи хотя бы две буквы названия или штрихкод.",false);return}
- if(!forceOnline)results=distinctFoods(localFoods(q,state.products||[],state.meals),40);
+ if(!forceOnline)results=distinctFoods(availableFoods(localFoods(q,state.products||[],state.meals)),40);
  showFoodMatches(panel,forceOnline?"Ищу в Open Food Facts…":"Ищу в каталоге на HA…",false);
  const current=()=>id===foodSearchId&&who===profile&&selectedDay===day&&$("matches")===panel&&val("query").trim()===q;
  try{
@@ -966,10 +984,10 @@ async function startFoodSearch(forceOnline){
    if(!current())return;
    if(forceOnline){
      const before=results.length;
-     results=distinctFoods([...results,...rankedFoods(q,response.map(importedFood))],40);
+     results=distinctFoods(availableFoods([...results,...rankedFoods(q,response.map(importedFood))]),40);
      showFoodMatches(panel,results.length===before?"Других совпадений в Open Food Facts нет. Можно ввести данные с упаковки.":"",false);
    }else{
-     results=distinctFoods([...results,...response.products],40);
+     results=distinctFoods(availableFoods([...results,...response.products]),40);
      const status={loading:"Расширенный каталог загружается на HA. Уже можно выбрать продукт или ввести его вручную.",
        unavailable:"HA пока не загрузил расширенный каталог. "+foodFailure(response.reason)+" Загрузка повторится автоматически.",
        demo:"В демо доступны встроенные карточки и твои продукты. Полный каталог открывается в HA."};
@@ -989,13 +1007,13 @@ document.addEventListener("input",ev=>{
  const input=ev.target, panel=$("matches"), q=input.value.trim(), profile=who, day=selectedDay;
  clearTimeout(foodSearchTimer);
  foodSearchId++;
- results=q.length>=2?distinctFoods(localFoods(q,state.products||[],state.meals),40):[];
+ results=q.length>=2?distinctFoods(availableFoods(localFoods(q,state.products||[],state.meals)),40):[];
  if(q.length<2){panel.replaceChildren();return}
  showFoodMatches(panel,"",false);
  foodSearchTimer=setTimeout(()=>{if(who===profile&&selectedDay===day&&$("query")===input&&input.value.trim()===q)startFoodSearch(false)},300);
 });
 function mealList(day){
- const m=state.meals.filter(x=>x.date.startsWith(day)).sort((a,b)=>a.date.localeCompare(b.date));
+ const m=state.meals.filter(x=>x.date.startsWith(day)&&SportVisibility.food(state,x)).sort((a,b)=>a.date.localeCompare(b.date));
  const macros=m.map(x=>{
    const values=SportPortions.mealNutrients(x);
    const detail=(x.oil?'<p>В том числе масло · '+numberRu(x.oil.grams)+' г · '+showMacros(macroUnits.map((_,i)=>scaledValue(x.oil.nut?.[i],x.oil.grams/100)))+'</p>':'')+
@@ -1005,7 +1023,7 @@ function mealList(day){
      '<details><summary>КБЖУ порции</summary><p>'+showMacros(values)+'</p>'+detail+'<p>Источник · '+esc(x.origin||"Из дневника")+'</p></details>'+btn("edit-meal-"+esc(x.id),"Исправить")+btn("remove-meal-"+esc(x.id),"Удалить");
  });
  const daily=nutritionForDay(state,day);
- const supplements=daily.supplements.map(s=>'<p>'+esc(s.name)+' · '+(s.linked?'Учтено в порции':'Добавка · '+showMacros(s.nut))+'</p>');
+ const supplements=daily.supplements.filter(s=>SportVisibility.supplement(state,s.name)).map(s=>'<p>'+esc(s.name)+' · '+(s.linked?'Учтено в порции':'Добавка · '+showMacros(s.nut))+'</p>');
  const totals=macroUnits.map((unit,i)=>{
    if(daily.missing[i]>0&&daily.count>daily.missing[i])return numberRu(daily.known[i])+' '+unit+' (по известным значениям)';
    return (Number.isFinite(daily.totals[i])?numberRu(daily.totals[i]):'—')+' '+unit;
@@ -1349,14 +1367,14 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
  if(a==="search"||a==="search-online"){startFoodSearch(a==="search-online");return}
  if(a.startsWith("pick-")){const item=results[+a.slice(5)];if(item)selectFoodCard(item);return}
  if(a==="cancel-meal"){rememberForm(formKey("meal"),null);editingMeal=null;render();return}
- if(a.startsWith("repeat-meal-")){const m=state.meals.find(x=>x.id===a.slice(12)&&!x.oneOff);if(!m)return;editingMeal=null;render();$("one-off").checked=false;selectFoodCard(m,true);return}
+ if(a.startsWith("repeat-meal-")){const m=state.meals.find(x=>x.id===a.slice(12)&&!x.oneOff);if(!m)return;SportVisibility.assertFood(state,m);editingMeal=null;render();$("one-off").checked=false;selectFoodCard(m,true);return}
  if(a.startsWith("edit-meal-")){openMealEditor(state.meals.find(m=>m.id===a.slice(10)));return}
- if(a.startsWith("remove-meal-")){const id=a.slice(12);if(!confirm("Удалить эту порцию из дневника?"))return;await commit(s=>removeMealIntake(s,id));editingMeal=null;render();return}
+ if(a.startsWith("remove-meal-")){const id=a.slice(12);SportVisibility.assertFood(state,state.meals.find(m=>m.id===id));if(!confirm("Удалить эту порцию из дневника?"))return;await commit(s=>{SportVisibility.assertFood(s,s.meals.find(m=>m.id===id));removeMealIntake(s,id)});editingMeal=null;render();return}
  if(a==="save-food-card"){
    if($("one-off").checked)throw Error("Для разовой порции настройки карточки недоступны.");
    const card=readPersonalCard();
    if(!card.name)throw Error("Введи название продукта.");
-   await commit(s=>{s.products=[card,...(s.products||[]).filter(p=>!SportPortions.sameProduct(p,card))]});
+   await commit(s=>{SportVisibility.assertFood(s,card);SportVisibility.assertFood(s,(s.products||[]).find(p=>SportPortions.sameProduct(p,card)));SportVisibility.assertFood(s,editingMeal&&s.meals.find(m=>m.id===editingMeal));s.products=[card,...(s.products||[]).filter(p=>!SportPortions.sameProduct(p,card))]});
    if(results.some(item=>SportPortions.sameProduct(item,card))){
      results=results.map(item=>SportPortions.sameProduct(item,card)?card:item);
      showFoodMatches($("matches"),"",Boolean($("matches").querySelector('[data-action="search-online"]')));
@@ -1364,6 +1382,7 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
    updateFoodCardButton();note("Настройки личной карточки сохранены.");return;
  }
  if(a==="meal"){
+   SportVisibility.assertFood(state,editingMeal&&state.meals.find(m=>m.id===editingMeal));
    if(editingMeal&&editingMealBase!==JSON.stringify(state.meals.find(m=>m.id===editingMeal)))throw Error("Порция изменилась на другом устройстве. Сверь запись в дневнике, нажми «Отмена» и открой исправление заново.");
    const card=readFoodCard();
    if(!card.name)throw Error("Введи название продукта.");
@@ -1378,7 +1397,7 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
    if(!intake.oil)delete portion.oil;
    if(estimateNote)portion.estimateNote=estimateNote;else delete portion.estimateNote;
    if($("one-off").checked)portion.oneOff=true;else delete portion.oneOff;
-   await saveForm("meal",s=>{SportPortions.setDoseLink(s,portion,old,old?.supplementEventId?undefined:linked);SportPortions.saveMeal(s,portion,card,Boolean(editingMeal));SportSupplementProducts.syncFromMeal(s,portion)});
+   await saveForm("meal",s=>{SportVisibility.assertFood(s,portion);SportVisibility.assertFood(s,old);SportPortions.setDoseLink(s,portion,old,old?.supplementEventId?undefined:linked);SportPortions.saveMeal(s,portion,card,Boolean(editingMeal));SportSupplementProducts.syncFromMeal(s,portion)});
    if(date.slice(0,10)!==selectedDay)selectDay(date.slice(0,10));
    editingMeal=null;editingMealBase=null;manualTime=date.slice(11,16);render();return;
  }
@@ -1476,6 +1495,8 @@ function renderDiaryUpdate(){
  }
  if(tab===2){
    // Leave the form, its caret and any in-flight catalogue search attached to the DOM.
+   updateFoodAvailability();
+   if(results.length)showFoodMatches($("matches"),"",Boolean($("matches").querySelector('[data-action="search-online"]')));
    $("food-diary").innerHTML=foodDiary();
    refreshProposals();
    const recent=$("recent-portions"),open=recent.querySelector("details")?.open;
@@ -1571,7 +1592,7 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
        }
      }
      fields.mealId.after(edit);fields.mealId.addEventListener("change",sourceFields);sourceFields();
-     edit.onclick=()=>{dlg.close();tab=2;editingMeal=meal.id;render();$("food-label").open=true;$("product").focus()};
+     edit.onclick=()=>{try{SportVisibility.assertFood(state,meal);dlg.close();tab=2;openMealEditor(meal,true)}catch(e){note(e.message)}};
    }
  }
  fields.slot.onchange=()=>{if(fields.clock.value&&period(selectedDay+"T"+fields.clock.value)!==fields.slot.value)fields.clock.value=""};

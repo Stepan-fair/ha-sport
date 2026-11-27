@@ -27,7 +27,8 @@ if (process.argv[2] === "portion") {
   const {totals, known, missing, count, supplements} = row?.nutrition || nutritionForDay(state, day);
   result = {day, totals, known, missing, count, maintenance: row?.maintenance ?? null, balance: row?.balance ?? null, partialCalories: missing[0] > 0};
   if(report.nutritionGoals?.fiber.knownCount)result.fiber=report.nutritionGoals.fiber;
-  const separate = supplements.filter(item => !item.linked);
+  const visibility = require("./visibility.js");
+  const separate = supplements.filter(item => !item.linked && visibility.supplement(state, item.name));
   if (separate.length) {
     const protein = separate.map(item => item.nut[1]).filter(Number.isFinite);
     result.supplementProtein = {grams: protein.length ? protein.reduce((sum, grams) => sum + grams, 0) : null,

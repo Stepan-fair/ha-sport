@@ -48,9 +48,30 @@ def protein_names(row):
     return [name for name in row.get("names", []) if isinstance(name, str) and re.search("протеин|protein", name, re.I)]
 
 
+def protein_enabled(state):
+    choices = state.get("profile", {}).get("supps", [])
+    return isinstance(choices, list) and bool(protein_names({"names": choices}))
+
+
+def food_visible(state, item):
+    """Hide supplement details without changing the recorded nutrition facts."""
+    if not item or protein_enabled(state):
+        return True
+    if item.get("productKind") in PROTEIN_KINDS or isinstance(item.get("proteinDetails"), dict):
+        return False
+    return not any(isinstance(row, dict) and protein_names(row) and (
+        item.get("id") and row.get("mealId") == item["id"] or
+        item.get("supplementEventId") and row.get("id") == item["supplementEventId"])
+        for row in state.get("supps", []))
+
+
+def assert_food_available(state, item):
+    if not food_visible(state, item):
+        raise BadPortion("Этот продукт отключён в настройках профиля. Включите его перед записью или исправлением.")
+
+
 def available_protein_doses(state, day):
-    choices = state.get("profile", {}).get("supps")
-    if isinstance(choices, list) and not protein_names({"names": choices}):
+    if not protein_enabled(state):
         return  # A stale assistant form cannot link an intake hidden by current profile settings.
     meal_ids = {meal.get("id") for _, meal in meals_in(state) if isinstance(meal.get("id"), str)}
     for index, row in enumerate(state.get("supps", [])):
@@ -296,7 +317,7 @@ def personal_cards(state):
     cards, seen = [], set()
     history = reversed(state.get("meals", []))
     for item in [*state.get("products", []), *(m for m in history if isinstance(m, dict) and not m.get("oneOff"))]:
-        if not isinstance(item, dict) or item.get("oneOff"):
+        if not isinstance(item, dict) or item.get("oneOff") or not food_visible(state, item):
             continue
         card = public_card(item)
         key = card.get("code") or card.get("name", "").casefold()

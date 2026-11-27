@@ -73,7 +73,7 @@ test("Подсказки появляются при вводе, старый о
     foodWords:require("./web/food-words.json"), who:"person1", selectedDay:"2026-01-20",
     state:{products:[],meals:[]}, results:[], $:id=>widgets[id], val:id=>widgets[id].value,
     document:{addEventListener:(type,callback)=>{events[type]=callback}},
-    esc:String, btn:(name,label)=>label, SportPortions:{preferredText:()=>""},
+    esc:String, btn:(name,label)=>label, SportPortions:{preferredText:()=>""},SportVisibility:require("./web/visibility"),
     clearTimeout:()=>{timer=null}, setTimeout:callback=>{timer=callback;return 1},
     request:url=>new Promise(resolve=>requests.push({url,resolve})),
   });

@@ -249,6 +249,7 @@ def append_meal(db, who, body):
         return 200, {"id": meal["id"]}
     if any(m.get("id") == meal["id"] for _, m in nutrition.meals_in(data)):
         return 409, {"error": "Идентификатор записи уже занят."}
+    nutrition.assert_food_available(data, meal)
     previous = deepcopy(data)
     data.setdefault("meals", []).append(meal)
     nutrition.link_new_meal(data, meal, body.get("linkDoseId"))
@@ -288,6 +289,8 @@ def matches_card(data, card):
 
 
 def apply_meal_change(data, target, updated):
+    nutrition.assert_food_available(data, target)
+    nutrition.assert_food_available(data, updated)
     nutrition.move_meal_links(data, target, updated)
     data["meals"][data["meals"].index(target)] = updated
     if any(row.get("mealId") == updated.get("id") and row.get("productSnapshot") for row in data.get("supps", [])):
@@ -358,6 +361,7 @@ def create_proposal(db, who, body):
     target = nutrition.proposed_card(body["card"]) if new_card else target_for(data, kind, target_id)
     if target is None:
         return 404, {"error": CONFLICT}
+    nutrition.assert_food_available(data, target)
     if (new_card and matches_card(data, target)) or (not new_card and target["_foodVersion"] != body["version"]):
         return 409, {"error": CONFLICT}
     proposal = {"kind": kind, "targetId": target_id, "version": body.get("version"), "reason": reason.strip(), "changes": change}
@@ -396,6 +400,7 @@ def decide_proposal(db, who, body):
         if proposal["targetId"]:
             if target is None or target["_foodVersion"] != proposal["version"]:
                 return 409, {"error": CONFLICT}
+            nutrition.assert_food_available(data, target)
             if proposal["kind"] == "meal":
                 updated = nutrition.corrected_meal(target, proposal["changes"])
                 days = proposal_deltas(data, target, updated)
@@ -406,6 +411,7 @@ def decide_proposal(db, who, body):
             else:
                 target["preferred"] = proposal["changes"]
         else:
+            nutrition.assert_food_available(data, proposal["after"])
             if matches_card(data, proposal["after"]):
                 return 409, {"error": CONFLICT}
             data.setdefault("products", []).insert(0, dict(proposal["after"]))
@@ -422,6 +428,25 @@ def profile_scale_rows(settings, who):
     if shared:
         return [r for r in measurements.readings(DATA / "sport.db", who) if r["entity"] != entity]
     return measurements.profile_readings(DATA / "sport.db", who, entity, core)
+
+
+def proposal_visible(data, proposal):
+    target = target_for(data, proposal["kind"], proposal.get("targetId"))
+    return all(nutrition.food_visible(data, item) for item in (target, proposal.get("before"), proposal.get("after")))
+
+
+def health_confirmation_visible(db, who, body, settings):
+    if not isinstance(body, dict) or set(body) not in ({"confirmReading", "date"}, {"confirmSleep", "date"}):
+        return True
+    action = "confirmSleep" if "confirmSleep" in body else "confirmReading"
+    for metric, (_, _, _, pending) in health_sensors.grants(db, who, settings).items():
+        if not pending or json.loads(pending).get("id") != body[action] or (action == "confirmSleep" and metric != "sleep"):
+            continue
+        visibility = read_state(db, who)["data"].get("profile", {}).get("visibility") or {}
+        if metric == "sleep":
+            return visibility.get("sleep") is not False
+        return visibility.get("activity") is not False and (visibility.get("dailyMetrics") or {}).get(metric) is not False
+    return True  # Unknown or stale candidates are rejected by health_sensors.update.
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -461,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[1] == "meals":
             ident = unquote(parts[2])
             for i, item in nutrition.meals_in(state):
-                if item.get("id") == ident:
+                if item.get("id") == ident and nutrition.food_visible(state, item):
                     return self.reply(200, nutrition.public_meal(item, i))
             return self.reply(404, {})
         if len(parts) == 3 and parts[1] == "protein-recipe":
@@ -481,7 +506,8 @@ class Handler(BaseHTTPRequestHandler):
             entity, _ = measurements.scale_binding(settings, who)
             result = nutrition.daily_calculation("day", {"state": state, "day": day, "entity": entity,
                                                        "scale": profile_scale_rows(settings, who)})
-            rows = [(i,m) for i,m in nutrition.meals_in(state) if str(m.get("date", ""))[:10] == day]
+            rows = [(i,m) for i,m in nutrition.meals_in(state)
+                    if str(m.get("date", ""))[:10] == day and nutrition.food_visible(state, m)]
             totals = nutrition.daily_calculation("mealTotals", [m for _,m in rows]) if rows else []
             result["meals"] = sorted((nutrition.public_meal(m, i, nut) for (i,m),nut in zip(rows, totals)),
                                      key=lambda m: m["date"])
@@ -523,6 +549,8 @@ class Handler(BaseHTTPRequestHandler):
                         settings = options()
                         if who not in allowed_profiles(settings, user_id) or settings.get(who + "_user") != user_id:
                             return self.reply(403, {})
+                        if not health_confirmation_visible(db, who, body, settings):
+                            return self.reply(400, {"error": "Этот показатель отключён в настройках профиля. Включите его перед записью."})
                         status = health_sensors.update(db, who, body, settings, diary_zone())
                     if status != 200:
                         return self.reply(status, {"error": "Предложение уже изменилось." if status == 409
@@ -554,9 +582,11 @@ class Handler(BaseHTTPRequestHandler):
                 if self.command == "POST":
                     return self.food_post(who, decide_proposal)
                 with closing(open_diary()) as db:
+                    data = read_state(db, who)["data"]
                     rows = db.execute("""SELECT id,status,body FROM food_proposal WHERE who=?
                                       ORDER BY (status='pending') DESC,rowid DESC""", (who,))
-                    return self.reply(200, [{**json.loads(body), "id": ident, "status": status} for ident, status, body in rows])
+                    proposals = [{**json.loads(body), "id": ident, "status": status} for ident, status, body in rows]
+                    return self.reply(200, [proposal for proposal in proposals if proposal_visible(data, proposal)])
             if url.path.startswith("/nutrition/"):
                 if not assistant:
                     return self.reply(403, {})

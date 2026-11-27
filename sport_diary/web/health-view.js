@@ -137,7 +137,7 @@ const SportHealthView=(()=>{
     return section("watch","Внешние данные с Apple Watch",d.workouts.length?"Записей за день · "+d.workouts.length:"Нет записей за день",rows+hiddenRows(c,"workout")+actions(button("workout","Внести тренировку с Apple Watch"),button("import","Импортировать JSON")));
   }
   function mealPanel(c){
-    const rows=(c.state.meals||[]).filter(m=>m.date?.startsWith(c.day));
+    const rows=(c.state.meals||[]).filter(m=>m.date?.startsWith(c.day)&&visibility.food(c.state,m));
     if(!rows.length)return "";
     const body=rows.map(m=>{
       const labels={substantial:"Существенная еда",light:"Лёгкий перекус"};
@@ -295,11 +295,13 @@ const SportHealthView=(()=>{
   }
   function mealEditor(c,id){
     const r=requiredRecord(getMeal(c,id));
+    visibility.assertFood(c.state,r);
     return {title:r.name||"Окончание приёма пищи",body:muted("В дневнике записано "+timeLabel(r.date)+". Укажи, когда действительно закончил есть.")+
       select("kind","Для вечернего режима",{"":"Без отметки",substantial:"Существенный приём",light:"Лёгкий перекус"},r.sleepMealKind||"")+
       instantFields("end","Фактическое окончание еды",r.actualConfirmed?r.actualEnd:"")+zoneTip(c),
       save:guardedChange(c,ctx=>getMeal(ctx,id),(s,data)=>{
         const meal=requiredRecord(getMeal({...c,state:s},id)),kind=data.get("kind");
+        visibility.assertFood(s,meal);
         if(!kind&&data.get("end"))throw Error("Выбери тип приёма или очисти время окончания, чтобы снять отметку.");
         const end=kind&&data.get("end")?stampAt(data,"end",c,r.actualEnd):null;
         if(end&&Date.parse(end)>Date.now())throw Error("Фактическое окончание еды ещё не наступило.");
