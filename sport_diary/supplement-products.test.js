@@ -101,3 +101,30 @@ test("An actual calendar day and period can be recorded without inventing an exa
  const s=state();P.saveEvent(s,event("a","Протеин",{date:d,period:"День"}));assert.equal(s.supps[0].date,d);assert.equal(s.meals[0].date,d);P.syncFromMeal(s,s.meals[0]);assert.equal(s.supps[0].period,"День");
  const before=JSON.stringify(s);assert.throws(()=>P.saveEvent(s,event("b","Протеин",{mealId:"deleted"})));assert.equal(JSON.stringify(s),before);
 });
+
+test("Moving and scaling a linked shake preserves unknown fat instead of inventing zero",()=>{
+ const s=state();s.meals.push({id:"old",name:"Шейк",date:d,totals:[200,30,null,5]});
+ P.saveEvent(s,event("a","Протеин",{mealId:"old",linkMode:"complete"}));
+ P.saveEvent(s,event("a","Протеин",{edit:true,date:"2026-11-21T09:00"}));
+ assert.deepEqual(s.supps[0].productSnapshot.totals,[200,30,null,5]);
+ assert.deepEqual(total(s,"2026-11-21").missing,[0,0,1,0]);
+ P.saveEvent(s,event("a","Протеин",{edit:true,date:"2026-11-21T09:00",servings:2}));
+ assert.deepEqual(s.supps[0].productSnapshot.totals,[400,60,null,10]);
+ assert.deepEqual(s.meals[0].nut,[200,30,null,5]);
+});
+
+test("Linked dose edits preserve meal metadata and invalidate the confirmed meal end only on date change",()=>{
+ const s=state();P.saveEvent(s,event("a"));
+ Object.assign(s.meals[0],{mealGroup:"Обед",fiber:2,fiberTotal:2,sleepMealKind:"main",actualConfirmed:true,actualEnd:d+"T09:20"});
+ P.saveEvent(s,event("a","Протеин",{edit:true}));
+ assert.equal(s.meals[0].mealGroup,"Обед");assert.equal(s.meals[0].fiberTotal,2);assert.equal(s.meals[0].actualEnd,d+"T09:20");assert.equal(s.meals[0].actualConfirmed,true);
+ P.saveEvent(s,event("a","Протеин",{edit:true,servings:2}));
+ assert.equal(s.meals[0].fiberTotal,4);assert.equal(s.meals[0].fiber,2);assert.equal(s.meals[0].actualConfirmed,true);
+ P.saveEvent(s,event("a","Протеин",{edit:true,date:"2026-11-21T09:00"}));
+ assert.equal(s.meals[0].mealGroup,"Обед");assert.equal(s.meals[0].sleepMealKind,"main");assert.equal(s.meals[0].fiberTotal,4);
+ assert.equal(s.meals[0].actualEnd,undefined);assert.equal(s.meals[0].actualConfirmed,undefined);
+});
+test("Meal synchronization refuses to change a disabled protein event",()=>{
+ const s=state();P.saveEvent(s,event("a"));s.profile.supps=[];const before=JSON.stringify(s.supps);
+ assert.throws(()=>P.syncFromMeal(s,{...s.meals[0],date:d+"T19:00"}),/отключён/);assert.equal(JSON.stringify(s.supps),before);
+});

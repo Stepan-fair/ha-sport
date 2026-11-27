@@ -24,6 +24,14 @@ jobs:
           node-version: '24'
       - run: python -m unittest discover -s sport_diary -p 'test_*.py'
       - run: node --test sport_diary/*.test.js
+      - name: Check real form events in an isolated DOM
+        run: |
+          python sport_diary/package.py
+          npm install --prefix "$RUNNER_TEMP/sport-dom" --no-save --package-lock=false jsdom@31.0.1
+          export SPORT_DOM_MODULE="$RUNNER_TEMP/sport-dom/node_modules/jsdom"
+          node sport_diary/dom_check.cjs
+          node sport_diary/dom_check_training.cjs
+          node sport_diary/dom_check_supplements.cjs
       - run: docker build -t sport-test sport_diary
       - name: Verify the complete food index and a barcode lookup without network
         run: |

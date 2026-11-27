@@ -53,7 +53,24 @@ const SportSupplementProducts=(()=>{
  function rememberPlan(state,day){const plans=state.suppPlans||={};if(!Object.hasOwn(plans,day))plans[day]=(state.supps||[]).some(x=>x.date.slice(0,10)===day)?null:availableOn(state,day)}
  function makeMeal(entry){
   const s=entry.productSnapshot,r=s.recipe,mass=s.milkGrams==null?null:s.powderGrams+s.milkGrams,size=mass==null?null:mass/s.servings;
-  return {id:entry.mealId||"supp-meal-"+entry.id,supplementEventId:entry.id,supplementComponents:{powder:clone(s.powderNutrition),milk:clone(s.milkNutrition),milkMl:s.milkMl},date:entry.date,name:s.mealName||(r.brand+" · "+r.variant+(s.milkMl===0?" · на воде":" + "+r.milk.brand)),unit:"г",basis:"piece",pieceName:"шейк",sizes:size==null?{}:{piece:size},nut:s.totals.map(v=>v/s.servings),amount:mass,portion:{mode:"piece",count:s.servings,size},baseTotals:[...s.totals],totals:[...s.totals],productKind:"protein_mix",proteinDetails:{servings:s.servings,powderGrams:s.powderGrams,proteinGrams:s.powderProtein},estimateNote:r.estimated?"Расчётный состав: "+r.note:"",oneOff:true};
+  return {id:entry.mealId||"supp-meal-"+entry.id,supplementEventId:entry.id,supplementComponents:{powder:clone(s.powderNutrition),milk:clone(s.milkNutrition),milkMl:s.milkMl},date:entry.date,name:s.mealName||(r.brand+" · "+r.variant+(s.milkMl===0?" · на воде":" + "+r.milk.brand)),unit:"г",basis:"piece",pieceName:"шейк",sizes:size==null?{}:{piece:size},nut:s.totals.map(v=>v==null?null:v/s.servings),amount:mass,portion:{mode:"piece",count:s.servings,size},baseTotals:[...s.totals],totals:[...s.totals],productKind:"protein_mix",proteinDetails:{servings:s.servings,powderGrams:s.powderGrams,proteinGrams:s.powderProtein},estimateNote:r.estimated?"Расчётный состав: "+r.note:"",oneOff:true};
+ }
+ function updateLinkedMeal(previous,entry,previousSnapshot){
+  const p=typeof module==="undefined"?SportPortions:require("./portions.js"),current=entry.productSnapshot;
+  const sameRecipe=previousSnapshot&&JSON.stringify(previousSnapshot.recipe)===JSON.stringify(current.recipe);
+  const sameComposition=sameRecipe&&previousSnapshot.servings===current.servings&&JSON.stringify(previousSnapshot.totals)===JSON.stringify(current.totals);
+  const meal=sameComposition?clone(previous):{...previous,...makeMeal(entry)};
+  if(!sameComposition){
+   // The new label contains the complete shake. Do not add an old separate oil component twice.
+   delete meal.oil;
+   if(sameRecipe&&Number.isFinite(previous.fiberTotal)){
+    meal.fiberTotal=previous.fiberTotal*current.servings/previousSnapshot.servings;
+    meal.fiber=meal.fiberTotal/current.servings;
+   }else{delete meal.fiber;delete meal.fiberTotal}
+   if(Object.hasOwn(previous,"oneOff"))meal.oneOff=previous.oneOff;
+  }
+  p.setMealTime(meal,entry.date,previous.date);
+  return meal;
  }
  function saveEvent(state,event){
   // Validate on a transaction copy. A failed link or malformed quantity cannot leave a partial plan/meal.
@@ -108,16 +125,17 @@ const SportSupplementProducts=(()=>{
       s.milkGrams=s.milkMl==null?null:s.milkMl*recipe.milk.density;
       if(s.milkMl!=null)s.recipe.milk.ml=s.milkMl/s.servings;
       s.correctedFromMeal=true;
-      const combined=makeMeal(entry);Object.assign(linked,combined,{id:entry.mealId});
+      const combined=updateLinkedMeal(linked,entry,null);Object.assign(linked,combined,{id:entry.mealId});
+      for(const key of ["actualEnd","actualConfirmed","fiber","fiberTotal","oil"])if(!Object.hasOwn(combined,key))delete linked[key];
      }else{
       const p=typeof module==="undefined"?SportPortions:require("./portions.js");
       s.totals=p.mealNutrients(linked);s.milkProtein=Math.max(0,(s.totals[1]||0)-s.powderProtein);s.externalMeal=true;s.correctedFromMeal=true;s.mealName=linked.name;
       linked.supplementEventId=entry.id;linked.productKind||="protein_mix";linked.proteinDetails||={servings:s.servings,powderGrams:s.powderGrams,proteinGrams:s.powderProtein};
       if(linked.proteinDetails.proteinGrams>s.totals[1])throw Error("Белка порошка больше, чем в связанной порции.");
-      linked.date=entry.date;
+      p.setMealTime(linked,entry.date);
      }
     }else{
-     const meal=makeMeal(entry),i=state.meals.findIndex(m=>m.id===entry.mealId);if(i<0)state.meals.push(meal);else state.meals[i]=meal;
+     const meal=makeMeal(entry),i=state.meals.findIndex(m=>m.id===entry.mealId);if(i<0)state.meals.push(meal);else state.meals[i]=updateLinkedMeal(state.meals[i],entry,previous);
     }
    }
   }
@@ -129,6 +147,7 @@ const SportSupplementProducts=(()=>{
  function syncFromMeal(state,meal){
   const e=(state.supps||[]).find(e=>e.id===meal.supplementEventId||e.mealId===meal.id&&e.productSnapshot&&canonical(e.names[0])==="Протеин");if(!e)return;
   const s=e.productSnapshot;if(!s)return;
+  if(!enabled(state,"Протеин"))throw Error("Протеин отключён. Для исправления включи его в настройках.");
   e.date=meal.date;if(meal.date.length>=16){const hour=Number(meal.date.slice(11,13));e.period=hour<6?"Ночь":hour<12?"Утро":hour<18?"День":"Вечер";}
   const info=meal.proteinDetails||{},oldCount=s.servings,newCount=info.servings??oldCount,factor=newCount/oldCount;
   s.servings=e.servings=newCount;
