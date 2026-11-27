@@ -288,8 +288,16 @@
  await pickDay(day);
  const dose=el('[data-move="Креатин"]').parentElement;
  verify(dose.firstElementChild.hasAttribute("data-move")&&getComputedStyle(dose).touchAction==="pan-y","supplement grip isolation");
+ verify([...document.querySelectorAll(".timegroup")].every(group=>group.querySelector('[name="supp"]')),
+   "empty supplement periods stay hidden");
+ // Populate a real destination through the tap alternative before testing its drag target.
+ await click('[data-move="Протеин"]');
+ const targetPeriod=el('dialog[open] [name="slot"]');targetPeriod.value="День";targetPeriod.dispatchEvent(new Event("change",{bubbles:true}));
+ await click('dialog[open] button[type="submit"]');
+ verify(!!el('[data-slot="День"] [name="supp"][value="Протеин"]')&&!state.supps.length,
+   "choosing a previously empty period creates a visible plan row without recording intake");
  await drag('[data-move="Креатин"]','[data-slot="День"]>strong');
- verify(el("dialog[open] select").value==="День","drop supplement");await click('dialog[open] button[type="submit"]');
+ verify(el("dialog[open] select").value==="День","drop supplement into an occupied period");await click('dialog[open] button[type="submit"]');
  await click('input[name="supp"][value="Креатин"]');await click('input[name="supp"][value="Омега-3"]');
  verify(!$("sdate")&&!$("period"),"calendar and card are the only date and period controls");
  await actionButton("cal-toggle");await actionButton("cal-toggle");
@@ -297,7 +305,19 @@
  await click('[data-move="Креатин"]');const f=el("dialog[open] form").elements;f.slot.value="Вечер";f.slot.dispatchEvent(new Event("change",{bubbles:true}));
  const t=f.clock;t.value="22:01";t.dispatchEvent(new Event("change",{bubbles:true}));
  await click('dialog[open] button[type="submit"]');verify(state.supps.length===2&&state.supps.some(x=>x.date===day+"T22:01"&&x.period==="Вечер"),"correct logged dose without duplicate");
- verify(el('[name="supp"][value="Креатин"]').disabled,"duplicate blocked");
+ const firstCreatine=state.supps.find(x=>x.names.includes("Креатин"));
+ verify(!el('[name="supp"][value="Креатин"]').disabled&&!el('[name="supp"][value="Креатин"]').checked,
+   "a recorded supplement stays available for the next distinct intake");
+ await click('[name="supp"][value="Креатин"]');await actionButton("supp");
+ const repeatedCreatine=state.supps.filter(x=>x.names.includes("Креатин"));
+ verify(state.supps.length===3&&repeatedCreatine.length===2&&new Set(repeatedCreatine.map(x=>x.id)).size===2&&
+   repeatedCreatine.every(x=>x.date===day+"T22:01"&&x.period==="Вечер")&&
+   proteinNear(nutritionForDay(state,day).doses.creatineActiveGrams,4.576),
+   "two confirmations in the same period and clock create two independent creatine events");
+ const secondCreatine=repeatedCreatine.find(x=>x.id!==firstCreatine.id);
+ await click('[data-history-index="'+state.supps.indexOf(secondCreatine)+'"] [data-action="undo-supp-'+encodeURIComponent("Креатин")+'"]');
+ verify(state.supps.length===2&&state.supps.some(x=>x.id===firstCreatine.id)&&!state.supps.some(x=>x.id===secondCreatine.id),
+   "removing the repeated intake preserves the earlier event");
  verify(document.documentElement.scrollWidth<=innerWidth,"viewport width");
  if(!limitedAccount){
  $("who").value="person2";$("who").dispatchEvent(new Event("change"));await frame();
