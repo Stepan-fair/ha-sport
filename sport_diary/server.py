@@ -624,6 +624,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         static = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js","text/javascript"),
                   "/style.css": ("style.css","text/css"), "/logic.js": ("logic.js","text/javascript"),
+                  "/visibility.js": ("visibility.js","text/javascript"),
                   "/foods.js": ("foods.js","text/javascript"), "/reports.js": ("reports.js","text/javascript"),
                   "/portions.js": ("portions.js","text/javascript"), "/assistant.js": ("assistant.js","text/javascript"),
                   "/report-view.js": ("report-view.js","text/javascript"),
