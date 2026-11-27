@@ -250,18 +250,32 @@
  await go(3);await go(0);await actionButton("supp");
  verify(four.every((name,i)=>state.supps.some(x=>x.names[0]===name&&x.date===otherDay&&x.period===(i<2?"Утро":"Вечер"))),"all four unmoved rows keep individual morning and evening slots after tab switch");
  const initialProtein=state.supps.find(x=>x.date===otherDay&&x.names.includes("Протеин"));
- verify(initialProtein.servings===1&&initialProtein.powderPerServing===30&&initialProtein.perServing[1]===22,"confirming the checkbox records one 30 g sachet and 22 g protein");
+ const proteinNear=(actual,expected)=>Math.abs(actual-expected)<1e-8;
+ const initialShake=state.meals.find(x=>x.id===initialProtein.mealId);
+ verify(initialProtein.servings===1&&initialProtein.productSnapshot.powderGrams===30&&
+   initialProtein.productSnapshot.milkMl===300&&proteinNear(initialProtein.productSnapshot.powderProtein,21.75)&&
+   initialShake?.supplementEventId===initialProtein.id&&proteinNear(initialShake.totals[1],30.8655),
+   "confirming protein records one 30 g sachet plus 300 ml milk in one linked meal");
  await actionButton("edit-dose-"+encodeURIComponent("Протеин"));
  const proteinForm=el("dialog[open] form").elements;
- enter(proteinForm.servings,"1.5");enter(proteinForm.powderPerServing,"30");
+ enter(proteinForm.servings,"1.5");enter(el('dialog[open] [data-recipe-field="powderGrams"]'),"30");
  await click('dialog[open] button[type="submit"]');
  const afterCorrection=diaryReport(state,scale,boundScale(),otherDay,"day");
- verify(afterCorrection.doses.proteinGrams===33&&afterCorrection.doses.powderGrams===45&&afterCorrection.nutrition.totals[1]===33,"fractional sachets, powder and dietary protein update together");
- await go(2);verify($("entries").textContent.includes("33"),"protein from supplement appears in food diary");
+ const correctedShake=state.meals.find(x=>x.id===initialProtein.mealId);
+ verify(afterCorrection.doses.proteinServings===1.5&&afterCorrection.doses.powderGrams===45&&
+   afterCorrection.doses.milkMl===450&&proteinNear(afterCorrection.doses.proteinGrams,32.625)&&
+   proteinNear(correctedShake.totals[1],46.29825)&&proteinNear(afterCorrection.nutrition.totals[1],46.49825)&&
+   proteinNear(afterCorrection.nutrition.totals[0],444.28)&&
+   state.meals.filter(x=>x.supplementEventId===initialProtein.id).length===1,
+   "fractional sachets update powder and milk once; day totals also include one omega capsule");
+ await go(2);verify(!!el('[data-action="edit-meal-'+initialProtein.mealId+'"]')&&
+   $("entries").textContent.includes(numberRu(46.29825)+" г белка")&&
+   $("entries").textContent.includes(numberRu(46.49825)+" г белка"),
+   "linked shake protein and total protein including omega appear separately in the food diary");
  await go(0);
  window.confirm=()=>true;
  for(const name of four)await actionButton("undo-supp-"+encodeURIComponent(name));
- verify(el(".calDay.chosen").getAttribute("aria-label").includes("Не принимал")&&nutritionForDay(state,otherDay).count===0,"removing last supplement restores past-day status and removes its macros");
+ verify(el(".calDay.chosen").getAttribute("aria-label").includes("Не принимал")&&nutritionForDay(state,otherDay).count===0&&!state.meals.some(x=>x.id===initialProtein.mealId),"removing supplements removes their macros and the linked shake without leaving a meal");
  await commit(s=>s.supps.push({date:otherDay+"T02:53",period:"Вечер",names:four.slice(0,2)}));render();
  await click('[data-move="Омега-3"]');
  const correction=el("dialog[open] form").elements;
