@@ -68,3 +68,17 @@ test("Открытая форма не записывает отключённы
  assert.throws(()=>editor.save(state,new Map([["method","quick"],["date",day],["minutes","420"],["kind","main"]])),/отключ/);
  assert.equal(state.health,undefined);
 });
+
+test("Отчёт скрывает отдельные добавки и упражнения, сохраняя общие факты",()=>{
+ const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
+ const state={profile:{supps:[],equipment:[]},workouts:[{id:"w",date:day+"T12:00",end:day+"T13:00",exercises:[{name:"Жим",sets:[{kg:40,reps:10,done:true}]}]}],meals:[{id:"m",name:"Еда",date:day+"T12:00",amount:100,unit:"г",nut:[120,22,2,3]}],supps:[]};
+ const ctx=vm.createContext({...require("./web/logic"),state,SportPortions:require("./web/portions"),esc:String,btn:(a,b)=>b,dayLabel:String,options:(rows)=>rows.join("|")});
+ for(const name of ["visibility","goals","health","reports","report-view"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",name+".js"),"utf8"),ctx);
+ ctx.report=reports.diaryReport(state,[],"",day,"day","2026-04-07");
+ assert.equal(ctx.report.sets,1);assert.equal(ctx.report.volume,400);
+ const text=vm.runInContext("intakeBody(report)+exerciseBody(report)",ctx);
+ assert.doesNotMatch(text,/Порошок протеина|Порции креатина|id="report-exercise"/);
+ assert.match(text,/120 ккал/);
+ state.profile.equipment=["Жим"];
+ assert.match(vm.runInContext("exerciseBody(report)",ctx),/id="report-exercise"/);
+});

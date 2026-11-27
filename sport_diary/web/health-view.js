@@ -401,7 +401,7 @@ const SportHealthView=(()=>{
     return {...spec,save(state,data,...args){visibility.assertAction(state,action,key||(action==="daily"?data?.get("metric"):null));return save(state,data,...args)}};
   }
   const sensorStatus={ok:"Есть показание",unavailable:"Источник недоступен",invalid:"Проверь значение и единицу",needs_date:"Для показания нужна дата"};
-  function sensorContents(s){
+  function sensorContents(s,state){
     const enabled=new Set(s.enabled||[]),b=s.bindings||{};
     const rows=Object.entries(sensors).map(([key,[label,unit,example]])=>{
       const entity=b[key],text=label+" · "+unit;
@@ -411,7 +411,7 @@ const SportHealthView=(()=>{
       return '<div class="healthSensor">'+labelHtml+(entity?'<code>'+h(entity)+'</code><small>'+h(state)+'</small>':'<small>Добавь персональную сущность в конфигурацию приложения HA, например <code>'+h(example)+'</code>.</small>')+
         (s.canManage&&(entity||s.healthImported?.daily?.some(x=>x.metric===key)||key==="sleep"&&s.healthImported?.sleep?.length)?button("clear-source","Очистить историю датчика",key):"")+'</div>';
     }).join("");
-    const candidates=(s.candidates||[]).filter(r=>Object.hasOwn(sensors,r.metric)).map((r,i)=>{
+    const candidates=(s.candidates||[]).filter(r=>Object.hasOwn(sensors,r.metric)&&(!state||(r.metric==="sleep"?visibility.section(state,"sleep"):visibility.dailyMetric(state,r.metric)))).map((r,i)=>{
       const sleep=r.metric==="sleep",[label,unit]=sensors[r.metric];
       return '<fieldset class="healthCandidate" data-candidate="'+h(r.id)+'"><legend>'+h(label+" · "+(sleep?duration(r.minutes??r.value):number(r.value)+" "+unit))+'</legend>'+
         muted("Источник: "+(r.source||"HA")+". Дата события в показании отсутствует.")+
@@ -509,7 +509,7 @@ const SportHealthView=(()=>{
       ui.form.onsubmit=e=>e.preventDefault();
       ui.footer.querySelector("button").onclick=()=>ui.dlg.close();
       ui.dlg.showModal();
-      const draw=s=>{snapshots.set(c.profile.id,s);ui.body.innerHTML=sensorContents(s)};
+      const draw=s=>{snapshots.set(c.profile.id,s);ui.body.innerHTML=sensorContents(s,context().state)};
       const retrieve=async(body)=>{
         const snapshot=await c.request(path,body);
         if(!sameScope(c)||!ui.dlg.open)return;
@@ -534,6 +534,9 @@ const SportHealthView=(()=>{
           }
           if(a==="refresh-sensors")return retrieve({refresh:true});
           if(a==="confirm-candidate"){
+            const candidate=s.candidates?.find(r=>r.id===fieldset.dataset.candidate);
+            if(!candidate)throw Error("Показание изменилось. Открой датчики заново.");
+            visibility.assertAction(context().state,candidate.metric==="sleep"?"sleep":"daily",candidate.metric);
             const date=fieldset.querySelector("input").value;
             if(!date)throw Error("Выбери подтверждённую дату события.");
             return retrieve({confirmReading:fieldset.dataset.candidate,date});

@@ -119,7 +119,7 @@ function legacyDoseSelection(issues){
 }
 function exerciseBody(r){
   const names=r.exerciseNames.filter(label=>(state.workouts||[]).some(w=>(w.exercises||[]).some(ex=>SportVisibility.exercise(state,ex.name)&&exerciseResultName(ex)===label)));
-  if(!names.length)return '<p>Пока нет выполненных подходов за выбранный период.</p>';
+  if(!names.length)return r.exerciseNames.length?'<p>Подробности скрыты настройками профиля. Для просмотра включи нужные упражнения. Общие итоги сохраняют все записанные подходы.</p>':'<p>Пока нет выполненных подходов за выбранный период.</p>';
   const name=names.includes(reportExercise)?reportExercise:names[0];
   const records=r.rows.map(d=>d.exercises.get(name)).filter(Boolean);
   return '<label>Упражнение и тренажёр<select id="report-exercise">'+options(names,name)+'</select></label>'+
@@ -140,7 +140,7 @@ function healthPeriodBody(r){
     graph(r.rows.filter(d=>d.health?.hasNight).map(d=>[d.day,d.health.sleepMinutes/60]),"Сон по датам пробуждения","ч")+
     (h.trend.length?reportTable(["Пробуждение","Начало основного сна","Конец","Сон, ч"],h.trend.map(n=>[shortDay(n.date),diaryTime(new Date(n.start)).slice(11,16),diaryTime(new Date(n.end)).slice(11,16),numberRu(n.minutes/60)])):""):"";
   if(!sleep&&!rows.length)return "";
-  return disclosure("health-period","Сон и повседневная активность",sleep+
+  return disclosure("health-period",sleep?(rows.length?"Сон и повседневная активность":"Сон за период"):"Повседневная активность",sleep+
     (rows.length?reportTable(["Показатель","Среднее за день","Дней с данными"],rows):""));
 }
 function resultsPage(){
