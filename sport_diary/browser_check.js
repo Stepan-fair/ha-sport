@@ -115,6 +115,12 @@
  verify(otherId!==mealId,"repeating a meal allocates a distinct ID");
  window.confirm=()=>false;await actionButton("remove-meal-"+otherId);verify(state.meals.length===2,"cancel portion deletion");
  window.confirm=()=>true;await actionButton("remove-meal-"+otherId);verify(state.meals.length===1&&state.meals[0].id===mealId,"delete only the repeated portion");
+ await go(3);await actionButton("settings");
+ for(const movement of ["Ягодичный мост в тренажёре Смита","Сгибание рук на скамье Скотта с EZ-грифом"]){
+   const checkbox=Array.from(document.querySelectorAll('[name="eq"]')).find(input=>input.value===movement);
+   if(!checkbox.checked)checkbox.click();
+ }
+ await actionButton("profile");
  await go(1);verify($("start").value===day+"T12:35","shared clock");set("start",day+"T10:00");await actionButton("start");
  const uuidV4=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
  verify(uuidV4.test(draft?.id)&&uuidV4.test(mealId)&&draft.id!==mealId,"distinct v4 IDs for workout and meal");
@@ -170,7 +176,7 @@
  await drag('[data-ex-index="0"] span','[data-reorder="1"]');
  verify(draft.exercises[0].name===first&&getComputedStyle(row).touchAction==="pan-y","swiping title leaves order intact");
  await click('[data-reorder="0"]');verify(!!el("dialog[open] select"),"tap alternative");await click('dialog[open] button[type="button"]');
- await click('[data-k="done"]');await drag('[data-reorder="0"]','[data-reorder="1"]');
+ set("k0_0","0");set("r0_0","10");await click('[data-k="done"]');await drag('[data-reorder="0"]','[data-reorder="1"]');
  verify(visible("finish")&&el('[data-action="save-note-1"]').closest("details").querySelector("textarea").value===textNote,"reordering keeps note on movement");
  verify(draft.exercises[1].name===first&&draft.exercises[1].sets[0].done,"drag completed exercise");
  const grip=el('[data-reorder="1"]');grip.focus();grip.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true}));
@@ -207,8 +213,8 @@
  const owner=people.find(person=>person.id===who),savedEntity=owner.weightEntity;
  owner.weightEntity="Весы";render();verify(el(".scaleBinding").textContent.includes("Проверь ID"),"invalid binding has a correction hint");
  owner.weightEntity=savedEntity;render();
- verify(!visible("profile")&&!visible("save-supps")&&!visible("weight")&&document.querySelectorAll("input[name=eq]").length===Object.values(guides).filter(g=>!g.legacy).length,"grouped catalogue and clean forms");
- const pref=el(".exerciseChoice"),toggle=pref.querySelector("summary"),choice=pref.querySelector("input[name=eq]");
+ verify(!visible("profile")&&!visible("save-supps")&&!visible("weight")&&document.querySelectorAll("input[name=eq]").length===Object.values(guides).filter(g=>!g.legacy&&g.group!=="Кардио").length,"grouped catalogue and clean forms");
+ const pref=el(".exerciseChoice:has(input[name=eq])"),toggle=pref.querySelector("summary"),choice=pref.querySelector("input[name=eq]");
  const previousChoice=choice.checked;
  pref.closest(".equipmentGroup").open=true;
  const prefImages=pref.querySelectorAll("img[data-photo]");

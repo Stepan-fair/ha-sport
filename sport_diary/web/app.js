@@ -39,7 +39,7 @@ const btn=(id,label,primary=false)=>'<button type="button" data-action="'+id+'" 
 const card=(title,body)=>'<article><h2>'+esc(title)+'</h2>'+body+'</article>';
 const note=t=>$("message").textContent=t;
 function initial(){
- return {profile:{height:"",age:"",sex:"",goal:goals[0],extra:[],week:Array(7).fill("Отдых"),minutes:45,step:2.5,equipment:[...starterEquipment],focus:"",fixed:false,supps:[]},weights:[],workouts:[],meals:[],supps:[]};
+ return {profile:{height:"",age:"",sex:"",goal:goals[0],extra:[],week:Array(7).fill("Отдых"),minutes:45,step:2.5,equipment:[...starterEquipment],showSetDone:true,cardioEquipment:["Дорожка","Велотренажёр","Эллипсоид"],warmupActivity:"Дорожка",focus:"",fixed:false,supps:[]},weights:[],workouts:[],meals:[],supps:[]};
 }
 async function request(path,body){
  if(body?.data&&path.startsWith("profile/")){
@@ -162,6 +162,10 @@ async function flushWorkouts(){
      const result=await request("profile/"+who),latest=unpack(result);
      const index=latest.workouts.findIndex(w=>w.id===item.workout.id);
      const existing=latest.workouts[index]||null;
+     const allowed=applyWorkoutVisibility(item.workout,latest.profile,existing);
+     if(JSON.stringify(allowed)!==JSON.stringify(item.workout)){
+       throw Error("Доступность оборудования изменилась. Открой локальную копию: отключённый незаписанный результат не отправлен. Включить оборудование можно в настройках профиля.");
+     }
      if(JSON.stringify(existing)!==JSON.stringify(item.workout)||latest.workoutDrafts?.[item.workout.id]){
        if(JSON.stringify(existing)!==JSON.stringify(item.workout)&&JSON.stringify(existing)!==JSON.stringify(item.before)){
          conflict=true;break;
@@ -255,7 +259,7 @@ function render(){
 const formSelectors={
  "save-protein-goal":"#protein-mode,#protein-goal,#regular-strength","save-creatine-goal":"#creatine-plan,#creatine-goal,#creatine-size",
  "save-energy":"#energy-mode,#daily-maint,#energy-factor","save-track":"#reward-track",
- profile:"#height,#birth,#sex,#goal,#focus,#minutes,#step,#fixed,#workingSets,#returning,[data-load-unit],[name=extra],[name=legday],[name=eq],[data-week],[data-step-name]",
+ profile:"#height,#birth,#sex,#goal,#focus,#minutes,#step,#fixed,#workingSets,#returning,#showSetDone,#warmupActivity,[name=cardio-equipment],[data-load-unit],[name=extra],[name=legday],[name=eq],[data-week],[data-step-name]",
  "save-supps":"[name=uses]",meal:"#meal-form input,#meal-form select",weight:"#kg,#wdate,#original-weight"
 };
 function formKey(action,name=""){
@@ -330,6 +334,10 @@ function updateFormEdits(ev){
    }
    updatePortionPreview();
  }
+ if(ev.type==="change"&&ev.target.name==="cardio-equipment"){
+   const p={...state.profile,cardioEquipment:selected("cardio-equipment")},chosen=$("warmupActivity").value;
+   $("warmupActivity").innerHTML=(cardioEnabled(p,chosen)?"":'<option value="" selected>Выбери доступную замену</option>')+cardioOptions(p,chosen);
+ }
  if(ev.target.name==="eq")updateEquipmentCount(ev.target.closest(".equipmentGroup"));
  const binding=formBindings.find(b=>b.fields.some(f=>f.el===ev.target));
  if(!binding)return;
@@ -352,22 +360,31 @@ function distanceMeters(c){
  return Number.isFinite(km)?Math.round(km*1e6)/1000:NaN;
 }
 function hasCardioResult(c){
- return Object.entries(c).some(([k,value])=>k!=="activity"&&value!==""&&value!=null);
+ return !c.skipped&&["time","seconds","distance","distanceKm","hr","speed","incline","power","kcal","resistance","cadence","stairs","floors"].some(k=>c[k]!==""&&c[k]!=null);
 }
 function workoutSignature(w){
  const exercises=w.exercises.map(e=>[e.name,e.restSeconds,e.sets.map(t=>[t.kg,t.reps,!!t.done,!!t.easy,!!t.warmup])]);
- const cardio=w.cardio.map(c=>[...["time","hr","speed","incline","power","kcal","activity"].map(k=>String(c[k]??"")),String(distanceMeters(c)??"")]);
+ const cardio=w.cardio.map(c=>[...["time","hr","speed","incline","power","kcal","activity","resistance","cadence","stairs","floors"].map(k=>String(c[k]??"")),String(distanceMeters(c)??""),!!c.skipped]);
  return JSON.stringify([w.date,w.end,exercises,cardio,w.timing]);
+}
+function hiddenDraftInput(session,p,before){
+ const exerciseSignature=e=>workoutSignature({exercises:[e],cardio:[]});
+ const cardioSignature=c=>workoutSignature({exercises:[],cardio:[{...c,time:c.time||(c.seconds!=null?Math.floor(c.seconds/60)+":"+String(c.seconds%60).padStart(2,"0"):"")}]});
+ const exercises=session.exercises.some(e=>!exerciseEnabled(p,e.name)&&e.sets.some(actualSetEntered)&&
+   !(before?.exercises||[]).some(old=>old.name===e.name&&exerciseSignature(old)===exerciseSignature(e)));
+ const cardio=session.cardio.some(c=>!cardioEnabled(p,c.activity)&&hasCardioResult({...c,skipped:false})&&
+   !(before?.cardio||[]).some(old=>cardioSignature(old)===cardioSignature(c)));
+ return exercises||cardio;
 }
 function updateFinishButton(){
  const finish=document.querySelector('[data-action="finish"]');
  if(finish&&draft){
-   finish.hidden=!draft.exercises.some(e=>e.sets.some(s=>s.done))&&!draft.cardio.some(hasCardioResult);
+   finish.hidden=!draft.exercises.some(e=>exerciseEnabled(state.profile,e.name)&&e.sets.some(s=>s.done||autoSetEntry(e,s,state.profile)&&actualSetEntered(s)))&&!draft.cardio.some(c=>cardioEnabled(state.profile,c.activity)&&hasCardioResult(c));
    const unchanged=draft.editSignature&&draft.editSignature===workoutSignature(draft);
    if(unchanged)finish.hidden=true;
    if($("finishHint")){
      $("finishHint").hidden=!finish.hidden;
-     $("finishHint").textContent=unchanged?"Измени результат, чтобы сохранить исправление.":"Отметь подход или заполни дорожку, чтобы завершить занятие.";
+     $("finishHint").textContent=unchanged?"Измени результат, чтобы сохранить исправление.":"Запиши выполненный подход или фактическое кардио, чтобы завершить занятие.";
    }
  }
 }
@@ -384,9 +401,9 @@ function guidePanel(name,settings=false){
    const hint=g?"В старой записи не указан конкретный тренажёр. Выбери точный вариант в каталоге.":"Для своего упражнения можно сохранить личную настройку. Добавь в название вариант тренажёра.";
    return settings?'<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Об упражнении</summary><p class="guideBody">'+hint+'</p></details>':'<p class="muted">'+hint+'</p>';
  }
- const frames=g.photo?[0,1].map(i=>[exercisePhotoBase+g.photo+'/'+i+'.jpg','Положение '+(i+1)]):[[g.visualUrl,'Пример · '+g.visualSource]];
+ const frames=g.photo?[0,1].map(i=>[exercisePhotoBase+g.photo+'/'+i+'.jpg','Положение '+(i+1)]):g.visualUrl&&!g.linkOnly?[[g.visualUrl,'Пример · '+g.visualSource]]:[];
  const photos='<div class="guidePhotos">'+frames.map(([url,caption])=>'<figure><img data-photo="'+esc(url)+'" alt="'+esc(name+' · '+caption)+'" decoding="async" referrerpolicy="no-referrer"><figcaption>'+esc(caption)+'</figcaption><button type="button" class="retryPhoto" hidden>Загрузить фото ещё раз</button></figure>').join("")+'</div>'+
-   (g.photo?'<small>Пример оборудования · Free Exercise DB</small>':'<a href="'+esc(g.reference)+'" target="_blank" rel="noopener noreferrer">Открыть пример у '+esc(g.visualSource)+' ↗</a>');
+   (g.photo?'<small>Фото · Free Exercise DB · public domain / Unlicense · <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener noreferrer">Источник ↗</a></small>':'<p class="muted">'+esc(g.imageNote||"Фотопример доступен по ссылке на источник. Текст остаётся доступен без изображения.")+'</p><a href="'+esc(g.reference)+'" target="_blank" rel="noopener noreferrer">Открыть пример у '+esc(g.visualSource)+' ↗</a>');
  return '<details class="exerciseGuide" data-disclosure="'+esc("guide:"+name)+'"><summary>Фото и техника</summary><div class="guideBody"><h3>'+esc(g.station)+'</h3><p>'+esc(g.recognize)+'</p>'+photos+'<dl>'+
  [["Настройка",g.setup],["Движение",g.movement],["На что обратить внимание",g.avoid],["Основная нагрузка",g.primary],["Помогают или стабилизируют",g.secondary]].map(([title,body])=>'<dt>'+title+'</dt><dd>'+esc(body)+'</dd>').join("")+'</dl></div></details>';
 }
@@ -409,10 +426,10 @@ function notePanel(name,i){
 function knownExerciseNames(){
  const p=state.profile;
  const recorded=[...p.equipment,...(p.customExercises||[]),...state.workouts.flatMap(w=>w.exercises.map(e=>e.name)),...(draft?.exercises||[]).map(e=>e.name)];
- return [...new Set([...Object.keys(guides).filter(n=>!guides[n].legacy),...recorded])];
+ return [...new Set([...Object.keys(guides).filter(n=>!guides[n].legacy&&guides[n].group!=="Кардио"),...recorded])];
 }
 function exercisePreferences(profile){
- const groups=new Map();
+ const groups=new Map(["Ноги","Ягодицы","Спина","Грудь","Плечи","Руки","Пресс и корпус"].map(g=>[g,[]]));
  for(const name of knownExerciseNames()){
    const group=guideFor(name)?.group||"Свои упражнения";
    if(!groups.has(group))groups.set(group,[]);
@@ -550,15 +567,27 @@ function today(){
    return '<div data-history-index="'+state.supps.indexOf(x)+'"><p>'+esc(x.period+(x.date.length>10?" "+x.date.slice(11):"")+" · "+n+amount)+'</p>'+btn("edit-dose-"+id,"Исправить · "+esc(n))+btn("undo-supp-"+id,"Снять отметку · "+esc(n))+'</div>';
  }).join("")).join(""));
 }
+function cardioOptions(p,selected,blank=false){
+ return (blank?'<option value="">Не заполнено — выбери активность</option><option value="skipped" '+(selected==="skipped"?'selected':'')+'>Не выполнялась</option>':"")+cardioActivities.filter(a=>cardioEnabled(p,a)).map(a=>'<option value="'+esc(a)+'" '+(a===selected?'selected':'')+'>'+esc(cardioLabel(a))+'</option>').join("");
+}
+function cardioPreferences(p){
+ const selected=canonicalCardio(p.warmupActivity||"Дорожка"),available=cardioEnabled(p,selected);
+ return '<h3>Кардио</h3><p class="muted">Доступность тренажёров и обычная разминка настраиваются отдельно. Спокойная ходьба и разминка без оборудования доступны всегда.</p>'+cardioMachines.map(a=>'<div class="exerciseChoice">'+check(cardioLabel(a),'name="cardio-equipment" value="'+esc(a)+'"',enabledCardio(p).includes(a))+guidePanel(a,true)+'</div>').join("")+'<label>Обычная разминка<select id="warmupActivity">'+(!available?'<option value="" selected>Выбери доступную замену</option>':"")+cardioOptions(p,selected)+'</select></label>'+(!available?'<p role="status">Обычный тренажёр отключён. Выбери замену; без тренажёров силовой план остаётся доступным.</p>':"")+["Разминка без тренажёров","Суставная разминка","Динамическая разминка","Спокойная ходьба"].map(a=>guidePanel(a,true)).join("");
+}
+function visibleExercises(session){return session.exercises.map((e,i)=>({e,i})).filter(({e})=>exerciseEnabled(state.profile,e.name))}
+function hiddenWorkoutNotice(session){return session.exercises.some(e=>!exerciseEnabled(state.profile,e.name))||session.cardio?.some(c=>!cardioEnabled(state.profile,c.activity))?'<p class="muted">Отключённые элементы скрыты. Сохранённые факты остаются в общих итогах. Скрытый незаписанный ввод остаётся в черновике; перед завершением его нужно проверить или явно удалить после включения элемента. Для просмотра и исправления включи элемент в настройках профиля.</p>':""}
+function setRows(e,i){
+ return e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'"><span class="setRole">'+(t.warmup?'Подводящий подход':'Рабочий подход')+'</span>'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="any" placeholder="'+esc(t.plan?.kg??"Факт")+'"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1" placeholder="'+esc(t.plan?.reps??"Факт")+'"')+(state.profile.showSetDone!==false?check("Готово",'data-k="done"',t.done):"")+'<button type="button" data-action="remove-set-'+i+'-'+j+'" aria-label="Удалить подход '+(j+1)+'">Удалить подход</button></div>').join("");
+}
 function progressMeter(){
- const optional=draft.timing?estimateWorkout(draft.exercises,draft.timing).optional:[];
- const sets=draft.exercises.flatMap((e,i)=>optional.includes(i)?e.sets.filter(s=>s.done):e.sets),done=sets.filter(s=>s.done).length;
+ const shown=visibleExercises(draft),optional=draft.timing?estimateWorkout(shown.map(({e})=>e),currentWorkoutTiming(draft)).optional:[];
+ const sets=shown.flatMap(({e},i)=>e.sets.filter(t=>!optional.includes(i)||setCompleted(e,t,state.profile)).map(t=>({e,t}))),done=sets.filter(({e,t})=>setCompleted(e,t,state.profile)).length;
  return '<div class="meter" id="setMeter"><span>Выполнено подходов</span><b>'+done+' / '+sets.length+'</b><progress max="'+Math.max(1,sets.length)+'" value="'+done+'"></progress></div>';
 }
 function exercisePicker(i){
  const suffix=i===null?"new":i;
  const groups=new Map();
- for(const name of new Set([...state.profile.equipment,...knownExerciseNames()])){
+ for(const name of new Set(state.profile.equipment)){
    const group=state.profile.equipment.includes(name)?"Доступны в моём зале":guideFor(name)?.group||"Свои упражнения";
    if(!groups.has(group))groups.set(group,[]);
    groups.get(group).push(name);
@@ -583,10 +612,26 @@ function plannedLine(e){
  const text=values.every(s=>s===values[0])?values.length+" подх. по "+values[0]:values.join(", ");
  return '<p class="muted">Исходный план · '+esc(text)+(e.loadUnit?" · "+esc(e.loadUnit):"")+'</p>';
 }
+function currentWorkoutTiming(session){
+ if(!session.timing)return null;
+ const extra=(session.cardio||[]).slice(2).filter(c=>!c.skipped&&cardioEnabled(state.profile,c.activity)).map(c=>{
+   const parts=/^\d{1,3}:[0-5]\d$/.test(c.time||"")?c.time.split(":").map(Number):[];
+   return {role:c.role||"Кардио",activity:c.activity||"",minutes:parts.length?parts[0]+parts[1]/60:Number(c.seconds||0)/60};
+ });
+ return {...session.timing,cardio:[...session.timing.cardio,...extra]};
+}
+function originalPlanPanel(session){
+ const original=session.originalPlan;
+ if(!original)return "";
+ const rows=original.exercises.filter(e=>exerciseEnabled(state.profile,e.name)).map(e=>'<li>'+esc(exerciseLabel(e.name))+plannedLine(e)+'</li>');
+ const cardio=(original.timing?.cardio||[]).filter(c=>cardioEnabled(state.profile,c.activity)).map(c=>'<li>'+esc(c.role||"Кардио")+' · '+esc(cardioLabel(c.activity))+' · '+esc(c.minutes)+' мин</li>');
+ if(!rows.length&&!cardio.length)return "";
+ return '<details class="originalPlan" data-disclosure="original-plan"><summary>Исходная рекомендация · до изменений состава</summary><ol>'+cardio.slice(0,1).join("")+rows.join("")+cardio.slice(1).join("")+'</ol></details>';
+}
 function planOverview(session){
  if(!session.timing)return "";
- const {timing,exercises}=session,t=estimateWorkout(exercises,timing);
- const cardioRow=(name,c)=>'<li>'+name+' · '+(c.minutes?esc(c.activity)+' · '+c.minutes+' мин':'пропущена по плану')+'</li>';
+ const timing=currentWorkoutTiming(session),exercises=session.exercises.filter(e=>exerciseEnabled(state.profile,e.name)),t=estimateWorkout(exercises,timing);
+ const cardioRow=(name,c)=>!cardioEnabled(state.profile,c.activity)?'':'<li>'+name+' · '+(c.minutes?esc(cardioLabel(c.activity))+' · '+c.minutes+' мин':'пропущена по плану')+'</li>';
  const rows=exercises.map((e,i)=>{
    const block=t.blocks[i];
    return '<li>'+esc(exerciseLabel(e.name))+' · '+block.minutes+' мин · рабочих подходов '+block.working+(block.ramp?', подводящих '+block.ramp:'')+(t.optional.includes(i)?' · <b>по желанию</b>':'')+'</li>';
@@ -594,47 +639,47 @@ function planOverview(session){
  const over=t.total-timing.budget;
  const count=t.blocks.reduce((sum,b)=>sum+b.working,0);
  let reserve="";
- if(session===draft&&timing.reserve&&!exercises.some(e=>e.name===timing.reserve)){
+ if(session===draft&&timing.reserve&&exerciseEnabled(state.profile,timing.reserve)&&!exercises.some(e=>e.name===timing.reserve)){
    const e=exerciseFor(timing.reserve,state.profile,completedBefore(state.workouts.filter(w=>w.id!==session.id),session.date),session.date);
    const extra=estimateWorkout([...exercises,e],timing).total-t.total;
 reserve=t.total+extra<=timing.budget?btn("reserve-exercise","Добавить по желанию · "+esc(e.name)+" · +"+extra+" мин"):'<p class="muted">'+esc(e.name)+' · ещё '+extra+' мин. Для этого блока не хватает '+(t.total+extra-timing.budget)+' мин.</p>';
  }
- return '<div id="workoutBudget"><p><b>Оценка '+t.total+' из '+timing.budget+' мин.</b> Силовых упражнений '+exercises.length+', рабочих подходов '+count+'.</p>'+
+ return '<div id="workoutBudget">'+(timing.notice?'<p role="status">'+esc(timing.notice)+'</p>':'')+originalPlanPanel(session)+'<p><b>Оценка '+t.total+' из '+timing.budget+' мин.</b> Силовых упражнений '+exercises.length+', рабочих подходов '+count+'.</p>'+
    (over>0?'<p role="status"><b>Сверх бюджета на '+over+' мин.</b>'+(t.optional.length?' Обязательная часть · '+t.required+' мин.':'')+'</p>':'')+
-   '<ol>'+cardioRow("Разминка",timing.cardio[0])+rows.join("")+cardioRow("Заминка",timing.cardio[1])+'</ol>'+
+   '<ol>'+cardioRow("Разминка",timing.cardio[0])+rows.join("")+timing.cardio.slice(2).map(c=>cardioRow("Отдельное кардио",c)).join("")+cardioRow("Заминка",timing.cardio[1])+'</ol>'+
    '<small>В блоках учтены настройка, подходы и паузы. Переходы и запас · '+t.transitions+' мин.'+(timing.samples?' Поправка к общему времени по прошлым занятиям ('+timing.samples+') · '+(t.adjustment>0?'+':'')+t.adjustment+' мин.':'')+'</small>'+reserve+'</div>';
 }
-const cardioActivities=["Дорожка","Спокойная ходьба","Велотренажёр","Эллипсоид","Другое"];
+const cardioFieldLabels={distance:"Дистанция, км",speed:"Средняя скорость, км/ч",incline:"Средний уклон, %",hr:"Средний пульс, уд/мин (необязательно)",power:"Средняя мощность, Вт",kcal:"Энергия с консоли, ккал (необязательно)",stairs:"Ступени",floors:"Этажи",cadence:"Темп / каденс, в минуту",resistance:"Уровень сопротивления этого тренажёра"};
 function cardioBlock(i){
- const role=i?"Заминка":"Разминка",c=draft.cardio[i],proposal=draft.timing?.cardio[i];
- const planFields=proposal?'<p>В плане: '+esc(proposal.activity)+' · План '+esc(proposal.minutes)+' мин.</p>':"";
+ const c=draft.cardio[i]||{},role=cardioRole(c,i),proposal=draft.timing?.cardio[i];
+ if(c.activity&&!cardioEnabled(state.profile,c.activity))return "";
+ const planFields=proposal&&cardioEnabled(state.profile,proposal.activity)?'<p>В плане: '+esc(cardioLabel(proposal.activity))+' · План '+esc(proposal.minutes)+' мин.</p>':"";
  const attrs=k=>'data-c="'+i+'" data-f="'+k+'"';
- const km=c.distanceKm??(c.distance!=null&&c.distance!==""?Number(c.distance)/1000:"");
- return card(role,planFields+'<h3>Фактический результат</h3><label>Вид активности<select '+attrs("activity")+'>'+options(cardioActivities,c.activity||"Дорожка")+'</select></label>'+
-   field("sec"+i,"Время, мин:сек","text",c.time,attrs("time")+' placeholder="7:04"')+
-   field("distance"+i,"Дистанция, км","text",km,attrs("distance")+' inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"')+
-   [["speed","Средняя скорость, км/ч"],["incline","Средний уклон, %"],["hr","Средний пульс, уд/мин"],["power","Средняя мощность, Вт"],["kcal","Энергия, ккал"]].map(([k,n])=>field(k+i,n,"number",c[k],'min="0" step="any" '+attrs(k))).join(''));
+ const requested=canonicalCardio(c.activity||proposal?.activity||warmupChoice(state.profile).activity),activity=cardioEnabled(state.profile,requested)?requested:warmupChoice(state.profile).activity;
+ const fields=[...(cardioFields[activity]||[]),"hr","kcal"];
+ const selector='<label>Вид активности<select '+attrs("activity")+'>'+cardioOptions(state.profile,c.skipped?"skipped":canonicalCardio(c.activity),true)+'</select></label>';
+ return card(role,planFields+(i>1?btn('remove-cardio-'+i,'Удалить отдельное кардио'):'')+'<h3>Фактический результат</h3>'+selector+(c.skipped?'<p>Не выполнялась. Время и расход этого блока не учитываются. Выбери активность, чтобы вернуть ввод.</p>':guidePanel(activity)+field("sec"+i,"Время, мин:сек","text",c.time,attrs("time")+' placeholder="7:04"')+fields.map(k=>k==="distance"?field("distance"+i,cardioFieldLabels[k],"text",c.distanceKm??(c.distance!=null&&c.distance!==""?Number(c.distance)/1000:""),attrs(k)+' inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"'):field(k+i,cardioFieldLabels[k],"number",c[k],'min="0" step="any" '+attrs(k))).join("")+'<small>Заполняй только известные показания. Уровни разных моделей несопоставимы; без ккал с консоли расход оценивается по типу активности.</small>'));
 }
 function workout(){
  if(!draft)return pendingPanel()+(Object.values(state.workoutDrafts||{}).some(m=>m.date.startsWith(selectedDay))?card("В процессе","<p>Черновик тренировки открыт на другом устройстве.</p>"):"")+state.workouts.filter(w=>w.date.startsWith(selectedDay)&&!queued().some(item=>item.workout.id===w.id)).map(w=>summary(w)).join("")+card("Новая тренировка",dt("start","Дата и время начала")+planOverview(buildWorkoutPlan(state,stamp()))+btn("start","Начать тренировку",true));
- return card("Тренировка",dt("start","Начало",draft.date)+'<small> Черновик на этом устройстве</small>'+planOverview(draft))+
- card("Состав тренировки",(draft.focusLabel?'<p>Акцент плана · '+esc(draft.focusLabel)+'</p>':'')+(draft.guidance?'<p>'+esc(draft.guidance)+'</p>':'')+progressMeter()+(draft.exercises.length?"":'<p class="muted">'+(state.profile.equipment.length?'В выбранное время целиком помещается только кардио. Можно добавить силовое упражнение вручную; оно может увеличить длительность занятия.':'Выбери доступные упражнения в настройках профиля или добавь упражнение вручную.')+'</p>')+'<div class="sequence">'+draft.exercises.map((e,i)=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(exerciseLabel(e.name))+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(exerciseLabel(e.name))+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(exerciseLabel(e.name))+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
- cardioBlock(0)+draft.exercises.map((e,i)=>card(exerciseLabel(e.name),guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+plannedLine(e)+(e.advice?'<p>'+esc(e.advice)+'</p>':'')+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+e.sets.map((t,j)=>'<div class="set" data-i="'+i+'" data-j="'+j+'">'+field("k"+i+"_"+j,"кг","number",t.kg,'data-k="kg" min="0" step="0.1"')+field("r"+i+"_"+j,"Повторы","number",t.reps,'data-k="reps" min="1" step="1"')+check("Готово",'data-k="done"',t.done)+check("Подводящий подход",'data-k="warmup"',t.warmup)+'</div>' ).join('')+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+cardioBlock(1)+
- card("Завершение",dt("end",selectedDay===local().slice(0,10)?"Окончание · оставь пустым, чтобы закончить сейчас":"Когда закончил тренировку",draft.end||"",selectedDay!==local().slice(0,10))+'<div class="actions">'+'<small id="finishHint">Отметь подход или заполни дорожку, чтобы завершить занятие.</small>'+btn("finish","Закончить и сохранить",true)+btn("cancel","Отменить тренировку")+'</div>');
+ return card("Тренировка",dt("start","Начало",draft.date)+'<small> Черновик на этом устройстве</small>'+hiddenWorkoutNotice(draft)+planOverview(draft))+
+ card("Состав тренировки",(draft.focusLabel?'<p>Акцент плана · '+esc(draft.focusLabel)+'</p>':'')+(draft.guidance?'<p>'+esc(draft.guidance)+'</p>':'')+progressMeter()+(draft.exercises.length?"":'<p class="muted">'+(state.profile.equipment.length?'В выбранное время целиком помещается только кардио. Можно добавить силовое упражнение вручную; оно может увеличить длительность занятия.':'Выбери доступные упражнения в настройках профиля или добавь упражнение вручную.')+'</p>')+'<div class="sequence">'+visibleExercises(draft).map(({e,i})=>'<div class="exerciseRow" data-ex-index="'+i+'"><button type="button" class="reorderGrip grip" data-reorder="'+i+'" aria-label="Порядок: '+esc(exerciseLabel(e.name))+'. Стрелки вверх и вниз меняют позицию" title="Изменить позицию">'+bars+'</button><b>'+String(i+1).padStart(2,"0")+'</b><span>'+esc(exerciseLabel(e.name))+'</span><button type="button" data-action="remove-'+i+'" aria-label="Удалить '+esc(exerciseLabel(e.name))+'">Удалить</button></div>').join("")+'</div>'+exercisePicker(null))+
+ cardioBlock(0)+visibleExercises(draft).map(({e,i})=>card(exerciseLabel(e.name),guidePanel(e.name)+notePanel(e.name,i)+editExercise(i)+plannedLine(e)+(e.advice?'<p>'+esc(e.advice)+'</p>':'')+'<p>Прошлый раз · '+esc(e.previous||"первое занятие")+'</p>'+setRows(e,i)+btn("add-"+i,"+ Подход")+btn("sub-"+i,"− Подход"))).join('')+draft.cardio.slice(2).map((c,i)=>cardioBlock(i+2)).join('')+btn('add-cardio','Добавить отдельное кардио')+cardioBlock(1)+
+ card("Завершение",dt("end",selectedDay===local().slice(0,10)?"Окончание · оставь пустым, чтобы закончить сейчас":"Когда закончил тренировку",draft.end||"",selectedDay!==local().slice(0,10))+'<div class="actions">'+'<small id="finishHint">Запиши выполненный подход или фактическое кардио, чтобы завершить занятие.</small>'+btn("finish","Закончить и сохранить",true)+btn("cancel","Отменить тренировку")+'</div>');
 }
 function summary(w,pending=false){
  const kg=workoutWeightAtStart(w,state,scale,boundScale()),t=total(w,kg),gains=[];
- const cardio=w.cardio.map(c=>'<p><b>'+esc(c.role)+'</b>'+(c.activity?' · '+esc(c.activity):'')+' · '+Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,"0")+[["hr","уд/мин"],["speed","км/ч"],["incline","% уклон"],["distance","км"],["power","Вт"],["kcal","ккал"]].filter(([k])=>c[k]!=null&&c[k]!=="").map(([k,u])=>" · "+esc(k==="distance"?(Number(c[k])/1000).toLocaleString("ru-RU",{maximumFractionDigits:4}):c[k])+" "+u).join("")+"</p>").join("");
+ const cardio=w.cardio.filter(c=>cardioEnabled(state.profile,c.activity)).map(c=>c.skipped?'<p><b>'+esc(c.role)+'</b> · Не выполнялась</p>':'<p><b>'+esc(c.role)+'</b>'+(c.activity?' · '+esc(cardioLabel(c.activity)):'')+' · '+Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,"0")+[["hr","уд/мин"],["speed","км/ч"],["incline","% уклон"],["distance","км"],["power","Вт"],["kcal","ккал"]].filter(([k])=>c[k]!=null&&c[k]!=="").map(([k,u])=>" · "+esc(k==="distance"?(Number(c[k])/1000).toLocaleString("ru-RU",{maximumFractionDigits:4}):c[k])+" "+u).join("")+"</p>").join("");
  const prior=completedBefore(state.workouts.filter(entry=>entry.id!==w.id),w.date);
  for(const [i,e] of w.exercises.entries()){
    const done=e.sets.filter(t=>t.done);
-   if(!done.length)continue;
+   if(!exerciseEnabled(state.profile,e.name)||!done.length)continue;
    const actual=done.map(t=>t.kg+" × "+t.reps+(t.warmup?" (разминка)":"")).join(", ");
    const p={...state.profile,loadUnits:{...state.profile.loadUnits,[noteKey(e.name)]:e.loadUnit||""}};
    const next=exerciseFor(e.name,p,[w,...prior],w.end||w.date);
    gains.push('<p><b>'+esc(exerciseResultName(e))+'</b> · '+esc(actual)+(e.previous?'<br><small>Раньше · '+esc(e.previous)+'</small>':'')+'</p>'+plannedLine(e)+'<p>'+esc(next.advice)+'</p>'+guidePanel(e.name)+notePanel(e.name,"history-"+w.id+"-"+i));
  }
- const ready=w.exercises.filter(e=>{
+ const ready=w.exercises.filter(e=>exerciseEnabled(state.profile,e.name)).filter(e=>{
    const sets=e.sets.filter(t=>!t.warmup);
    return qualifyingWeight({sets,planned:e.plannedSets||0},3)>0;
  }).map(e=>exerciseLabel(e.name));
@@ -646,7 +691,7 @@ function summary(w,pending=false){
    ["Полные ккал часов",linked.totalKcal==null?"—":numberRu(linked.totalKcal)+" ккал"],
    ["Средний пульс",linked.avgPulse==null?"—":numberRu(linked.avgPulse)+" уд/мин"]]):"";
  const energyNote=t.estimated==null?"":'<p class="muted">Показана оценка полного расхода за занятие. В суточном отчёте выбранный источник указан рядом с расходом.</p>';
- return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+energy+' · вес '+(kg??'—')+' кг</p>' +energyNote+watch+'<p class="muted">За день с записанной тренировкой · +8 баллов. Все начисления доступны в профиле.</p>'+cardio+(pending?"":btn('edit-workout-'+esc(w.id),'Исправить тренировку')+btn('delete-workout-'+esc(w.id),'Удалить тренировку'))+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены повторы и отмеченный запас.')+'</p>');
+ return card("Итог тренировки",'<p>'+t.minutes+' мин · '+t.sets+' подходов · '+t.volume+' кг суммарно</p><p>'+energy+' · вес '+(kg??'—')+' кг</p>' +energyNote+watch+hiddenWorkoutNotice(w)+originalPlanPanel(w)+'<p class="muted">За день с записанной тренировкой · +8 баллов. Все начисления доступны в профиле.</p>'+cardio+(pending?"":btn('edit-workout-'+esc(w.id),'Исправить тренировку')+btn('delete-workout-'+esc(w.id),'Удалить тренировку'))+esc(feedback)+gains.join('')+'<p>'+ (missed?'Занятие записано. В следующий раз повтори незавершённые рабочие подходы в комфортном объёме.':'План выполнен. При следующем старте будут учтены фактические рабочие подходы.')+'</p>');
 }
 const mealLabels=["Ккал","Белки","Жиры","Углеводы"];
 const portionModes={base:"Граммы / миллилитры",serving:"Порции",package:"Упаковки",piece:"По штукам"};
@@ -988,7 +1033,7 @@ function profile(){
    field("kg","Вес, кг","number","","step=any")+dt("wdate","Дата взвешивания")+btn("weight","Сохранить замер");
  const manualForm=linked?'<details class="equipmentGroup" data-disclosure="manual-weight"><summary>Внести отдельный замер вручную</summary><div>'+manual+'</div></details>':manual;
  return btn("results","← К результатам")+'<section class="profileEditor">'+card("Данные профиля",field("height","Рост, см","number",p.height)+field("birth","Дата рождения","date",p.birth||"")+'<label>Пол<select id="sex">'+options(["","Мужской","Женский"],p.sex)+'</select></label><p>'+metrics+'</p><p>Вес · '+(kg||"—")+' кг · '+esc(source)+'</p>'+binding+manualForm)+
- card("Настройки плана",'<label>Основная цель<select id="goal">'+options(goals,p.goal)+'</select></label><div>Дополнительные цели</div>'+goals.map(n=>check(n,'name="extra" value="'+esc(n)+'"',p.extra.includes(n))).join('')+'<div><label>Приоритет<select id="focus">'+options(["","Ноги","Спина","Грудь","Плечи","Руки"],priorityGroup(p))+'</select></label></div>'+field("minutes","Длительность, мин","number",p.minutes)+field("step","Шаг прибавки, кг","number",p.step,"step=any")+check("Оставлять пропущенный день ног на том же дне недели (иначе — продолжить очередь в ближайшую тренировку)",'id="fixed"',p.fixed)+'<label>Рабочие подходы<select id="workingSets"><option value="0">По длительности и истории</option>'+[2,3,4].map(n=>'<option value="'+n+'" '+(Number(p.workingSets)===n?'selected':'')+'>'+n+'</option>').join('')+'</select></label>'+check("Возвращаюсь после перерыва · без автоматической прибавки",'id="returning"',p.returning)+'<details class="equipmentGroup weekPlan"><summary>Недельное расписание</summary><div>'+[1,2,3,4,5,6,0].map(i=>'<label>'+['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][i]+'<select data-week="'+i+'" id="week'+i+'">'+options(["Отдых",...Object.keys(trainingSlots)],p.week?.[i]||'Отдых')+'</select></label>').join('')+'</div></details><div>Дни с акцентом на ноги</div>'+["Вс","Пн","Вт","Ср","Чт","Пт","Сб"].map((n,i)=>check(n,'name="legday" value="'+i+'"',(p.legDays||[2]).includes(i))).join("")+exercisePreferences(p))+'<div class="profileSaveBar">'+btn("profile","Сохранить профиль",true)+'</div></section>'+
+ card("Настройки плана",'<label>Основная цель<select id="goal">'+options(goals,p.goal)+'</select></label><div>Дополнительные цели</div>'+goals.map(n=>check(n,'name="extra" value="'+esc(n)+'"',p.extra.includes(n))).join('')+'<div><label>Приоритет<select id="focus">'+options(["","Ноги","Ягодицы","Спина","Грудь","Плечи","Руки","Пресс и корпус"],priorityGroup(p))+'</select></label></div>'+field("minutes","Длительность, мин","number",p.minutes)+field("step","Шаг прибавки, кг","number",p.step,"step=any")+check("Оставлять пропущенный день ног на том же дне недели (иначе — продолжить очередь в ближайшую тренировку)",'id="fixed"',p.fixed)+'<label>Рабочие подходы<select id="workingSets"><option value="0">По длительности и истории</option>'+[2,3,4].map(n=>'<option value="'+n+'" '+(Number(p.workingSets)===n?'selected':'')+'>'+n+'</option>').join('')+'</select></label>'+check("Возвращаюсь после перерыва · без автоматической прибавки",'id="returning"',p.returning)+'<details class="equipmentGroup weekPlan"><summary>Недельное расписание</summary><div>'+[1,2,3,4,5,6,0].map(i=>'<label>'+['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][i]+'<select data-week="'+i+'" id="week'+i+'">'+options(["Отдых",...Object.keys(trainingSlots)],p.week?.[i]||'Отдых')+'</select></label>').join('')+'</div></details><div>Дни с акцентом на ноги</div>'+["Вс","Пн","Вт","Ср","Чт","Пт","Сб"].map((n,i)=>check(n,'name="legday" value="'+i+'"',(p.legDays||[2]).includes(i))).join("")+check('Показывать галочку «Готово» у подходов','id="showSetDone"',p.showSetDone!==false)+'<p class="muted">Когда галочка скрыта, при завершении засчитываются только полностью введённые фактические подходы. Подсказки плана не считаются результатом.</p>'+cardioPreferences(p)+exercisePreferences(p))+'<div class="profileSaveBar">'+btn("profile","Сохранить профиль",true)+'</div></section>'+
  SportGoalsView.settings(state,selectedDay)+reportSettings()+supplementPreferences(p);
 }
 const val=id=>$(id).value;
@@ -1128,7 +1173,11 @@ async function action(a,historyIndex){
      const choice=op==="choose"?val("exercise-"+pos):"";
      const typed=(choice==="custom"?val("custom-"+pos):choice.slice(5)).trim().replace(/\s+/g," ");
      if(typed.length>100)throw Error("Название упражнения должно быть не длиннее 100 символов.");
-     const name=knownExerciseNames().find(n=>noteKey(n)===noteKey(typed))||typed;
+     const name=knownExerciseNames().find(n=>noteKey(n)===noteKey(typed)||noteKey(exerciseLabel(n))===noteKey(typed))||typed;
+     if(op==="choose"&&name&&!exerciseEnabled(state.profile,name)){
+       if(choice!=="custom"||knownExerciseNames().includes(name))throw Error("Упражнение отключено. Включи его в настройках профиля.");
+       await commit(s=>{s.profile.customExercises=[...new Set([...(s.profile.customExercises||[]),name])];s.profile.equipment=[...new Set([...s.profile.equipment,name])]});
+     }
      if(choice==="custom"&&guideFor(name)?.legacy)throw Error("Уточни тренажёр в названии или выбери конкретный вариант из списка.");
      if(op==="choose"&&pos!=="new"&&items[i]?.name===name)return;
      if(op==="choose"&&!name)throw Error("Выбери упражнение или введи своё название.");
@@ -1162,11 +1211,14 @@ async function action(a,historyIndex){
    if(review&&!confirm("Открыть локальную копию? После проверки сохранение заменит текущую версию в HA."))return;
    selectDay(w.date.slice(0,10));if(draft)throw Error("На этой дате уже есть открытый черновик.");
    const copy=structuredClone(w);
-   copy.cardio=["Разминка","Заминка"].map(role=>{const c=copy.cardio.find(x=>x.role===role);if(!c)return {};const {seconds,role:unused,...fields}=c;return {...fields,time:fields.time||Math.floor(seconds/60)+":"+String(seconds%60).padStart(2,"0")}});
+   for(const e of copy.exercises){e.editingSaved=true;for(const t of e.sets)t.factInput=false}
+   const extraCardio=copy.cardio.filter(c=>!["Разминка","Заминка"].includes(c.role)).map(c=>c.skipped?{...c}:{...c,time:c.time||Math.floor(c.seconds/60)+":"+String(c.seconds%60).padStart(2,"0")});
+   copy.cardio=["Разминка","Заминка"].map(role=>{const c=copy.cardio.find(x=>x.role===role);if(!c)return {};if(c.skipped)return {...c};const {seconds,role:unused,...fields}=c;return {...fields,time:fields.time||Math.floor(seconds/60)+":"+String(seconds%60).padStart(2,"0")}});
+   copy.cardio.push(...extraCardio);
    copy.editBase=current||null;if(!review)copy.editSignature=workoutSignature(copy);draft=copy;retain();if(review&&localStorage.getItem(pending.key)===pending.raw)localStorage.removeItem(pending.key);tab=1;render();return
  }
  if(a==="open"){tab=1;render();return}
- if(a==="reserve-exercise"&&draft?.timing?.reserve){
+ if(a==="reserve-exercise"&&draft?.timing?.reserve&&exerciseEnabled(state.profile,draft.timing.reserve)){
    const extra=exerciseFor(draft.timing.reserve,state.profile,completedBefore(state.workouts.filter(w=>w.id!==draft.id),draft.date),draft.date);
    if(!draft.exercises.some(e=>e.name===extra.name)&&estimateWorkout([...draft.exercises,extra],draft.timing).total<=draft.timing.budget){
      extra.optional=true;draft.exercises.push(extra);retain();
@@ -1176,19 +1228,28 @@ async function action(a,historyIndex){
  if(a==="start"){const date=when("start"),past=completedBefore(state.workouts,date),p=state.profile;
    const cycle=trainingCycle(p,past,date),availableGroups=new Set(p.equipment.map(n=>guideFor(n)?.group).filter(Boolean));
    const group=availableGroups.size===1?[...availableGroups][0]:cycle===0&&availableGroups.has("Ноги")?"Ноги":priorityGroup(p)||"Общая тренировка";
-   draft={id:newEntryId(),date,focusLabel:group,...buildWorkoutPlan(state,date),cardio:[{},{}]};retain();lastSummary=null;await publishDraftMarker(draft.id,date)}
+   const generated=buildWorkoutPlan(state,date);
+   draft={id:newEntryId(),date,focusLabel:group,...generated,originalPlan:structuredClone(generated),cardio:[{},{}]};retain();lastSummary=null;await publishDraftMarker(draft.id,date)}
  if(a==="cancel"){if(!confirm("Удалить черновик этой тренировки?"))return;const cancelled=draft;draft=null;retain();
    if(!cancelled.editBase)await publishDraftMarker(cancelled.id,"")}
- if(a.startsWith("add-")||a.startsWith("sub-")){const sets=draft.exercises[+a.split("-")[1]].sets;if(a.startsWith("add"))sets.push({...sets.at(-1),kg:sets.at(-1)?.kg||0,reps:sets.at(-1)?.reps||10,done:false,easy:false,warmup:false});else sets.pop();retain()}
+ if(a==="add-cardio"){draft.cardio.push({role:"Кардио"});retain();render();return}
+ if(a.startsWith("remove-cardio-")){const i=Number(a.slice(14));if(i>=2&&(!hasCardioResult(draft.cardio[i])||confirm("Удалить отдельное кардио с введённым результатом?")))draft.cardio.splice(i,1);retain();render();return}
+ if(a.startsWith("add-")||a.startsWith("sub-")){const sets=draft.exercises[+a.split("-")[1]].sets;if(a.startsWith("add"))sets.push({kg:null,reps:null,done:false,warmup:false,plan:{...(sets.at(-1)?.plan||{reps:10})},factInput:true});else sets.pop();retain()}
+ if(a.startsWith("remove-set-")){const [, ,i,j]=a.split("-"),sets=draft.exercises[Number(i)].sets;if(actualSetEntered(sets[Number(j)])&&!confirm("Удалить подход с введённым результатом?"))return;sets.splice(Number(j),1);retain();render();return}
  if(a==="finish"){
-   const w=structuredClone(draft);w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("end"):local();await refreshScale(who).catch(()=>{});
-   const before=w.editBase||null;delete w.editBase;delete w.editSignature;
+   const fresh=await request("profile/"+who);state=unpack(fresh);rev=fresh.rev;
+   const before=draft.editBase||null;
+   if(hiddenDraftInput(draft,state.profile,before))throw Error("В отключённом элементе остался незаписанный ввод. Черновик сохранён. Включи элемент в настройках профиля, чтобы проверить или явно удалить результат, затем заверши тренировку.");
+   const w=applyWorkoutVisibility(draft,state.profile,before);
+   for(const e of w.exercises)if(exerciseEnabled(state.profile,e.name)){e.sets=confirmedSets(e,state.profile);delete e.editingSaved;for(const t of e.sets)delete t.factInput}
+w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("end"):local();await refreshScale(who).catch(()=>{});
+   delete w.editBase;delete w.editSignature;
    if(w.timing){
-     const optional=estimateWorkout(w.exercises,w.timing).optional;
+     const optional=estimateWorkout(w.exercises,currentWorkoutTiming(w)).optional;
      w.exercises=w.exercises.flatMap((e,i)=>{
-       if(!optional.includes(i))return [e];
+       if(!exerciseEnabled(state.profile,e.name)||!optional.includes(i))return [e];
        const sets=e.sets.filter(t=>t.done);
-       return sets.length?[{...e,optional:true,sets,plannedSets:sets.filter(t=>!t.warmup).length}]:[];
+       return sets.length?[{...e,optional:true,sets,plannedSets:e.plannedSets||e.sets.filter(t=>!t.warmup).length}]:[];
      });
    }
    w.startedAt=before?.date===w.date&&before.startedAt?before.startedAt:diaryInstant(w.date).toISOString();
@@ -1200,17 +1261,27 @@ async function action(a,historyIndex){
    if(w.exercises.some(e=>e.sets.some(t=>t.done&&(!Number.isInteger(t.reps)||t.reps<1||!Number.isFinite(t.kg)||t.kg<0)))){
      throw Error("У отмеченного подхода укажи повторы и вес. Для упражнения без отягощения введи 0 кг.");
    }
-   w.cardio=w.cardio.flatMap((c,i)=>{if(!hasCardioResult(c))return [];if(!/^\d{1,3}:[0-5]\d$/.test(c.time||""))throw Error("Укажи время дорожки в формате мин:сек.");
-    if(c.distanceKm!=null){c.distance=distanceMeters(c);delete c.distanceKm}
-    for(const key of ["kcal","hr","speed","incline","distance","power"]){
-      if(c[key]!==""&&c[key]!=null&&(!Number.isFinite(Number(c[key]))||Number(c[key])<0))throw Error("Проверь показания дорожки: нужны числа от нуля.");
-    }
-    const [m,s]=c.time.split(":").map(Number),seconds=m*60+s;
-    if(!seconds)throw Error("Время дорожки должно быть больше нуля.");
-    return [{...c,role:i?"Заминка":"Разминка",seconds,kcal:c.kcal==null||c.kcal===""?null:Number(c.kcal)}]});
+   w.cardio=w.cardio.flatMap((c,i)=>{
+     const role=cardioRole(c,i);
+     if(!cardioEnabled(state.profile,c.activity))return [c];
+     if(c.skipped)return [{role,skipped:true}];
+     if(!hasCardioResult(c))return [];
+     if(!/^\d{1,3}:[0-5]\d$/.test(c.time||""))throw Error("Укажи время кардио в формате мин:сек.");
+     const activity=canonicalCardio(c.activity||w.timing?.cardio[i]?.activity||"Дорожка");
+     if(!cardioEnabled(state.profile,activity))throw Error("Тренажёр отключён. Выбери доступную активность.");
+     if(c.distanceKm!=null)c.distance=distanceMeters(c);
+     const keys=[...(cardioFields[activity]||[]),"kcal","hr"],facts={};
+     for(const key of keys)if(c[key]!==""&&c[key]!=null){
+       if(!Number.isFinite(Number(c[key]))||Number(c[key])<0)throw Error("Проверь показания кардио: нужны числа от нуля.");
+       facts[key]=Number(c[key]);
+     }
+     const [m,sec]=c.time.split(":").map(Number),seconds=m*60+sec;
+     if(!seconds)throw Error("Время выполненного кардио должно быть больше нуля.");
+     return [{role,activity,time:c.time,seconds,...facts}];
+   });
    const elapsed=Date.parse(w.endedAt)-Date.parse(w.startedAt);
-   if(elapsed<=0||elapsed>86400000||w.cardio.reduce((a,c)=>a+c.seconds,0)>elapsed/1000)throw Error("Проверь время начала, окончания и длительность дорожки.");
-   if(!total(w).sets&&!w.cardio.length)throw Error("Отметь выполненный подход или внеси дорожку.");
+   if(elapsed<=0||elapsed>86400000||w.cardio.filter(c=>!c.skipped).reduce((a,c)=>a+Number(c.seconds||0),0)>elapsed/1000)throw Error("Проверь время начала, окончания и длительность кардио.");
+   if(!total(w).sets&&!w.cardio.some(c=>!c.skipped&&c.seconds>0))throw Error("Запиши выполненный подход или фактическое кардио. Пустые и пропущенные строки не считаются выполнением.");
    localStorage.setItem(queuePrefix()+w.id,JSON.stringify({workout:w,before}));
    draft=null;retain();lastSummary=w;
    try{await flushWorkouts();note("Тренировка сохранена в дневнике.")}catch(e){note("Сохранено на устройстве. "+e.message)}
@@ -1223,7 +1294,7 @@ async function action(a,historyIndex){
  if(a==="profile"){const minutes=Number(val("minutes")),step=Number(val("step"));if(val("birth")&&Date.parse(val("birth"))>Date.now()||val("height")&&!(Number(val("height"))>0&&Number(val("height"))<300))throw Error("Проверь рост и дату рождения.");if(!Number.isFinite(minutes)||!Number.isFinite(step)||minutes<10||minutes>240||step<=0||step>20)throw Error("Проверь оборудование, длительность и шаг прибавки.");const exerciseSteps={};for(const f of document.querySelectorAll("[data-step-name]"))if(f.value!==""){if(!f.checkValidity())throw Error("Проверь шаг веса у упражнения.");exerciseSteps[f.dataset.stepName]=Number(f.value)}
    const week=Array.from({length:7},(_,i)=>val("week"+i));
    const prior=autoEnergyRule(state.profile,activeEnergyRule());
-   await saveForm("profile",s=>{Object.assign(s.profile,{week,exerciseSteps,workingSets:Number(val("workingSets")),returning:$("returning").checked,
+   await saveForm("profile",s=>{Object.assign(s.profile,{week,exerciseSteps,showSetDone:$("showSetDone").checked,cardioEquipment:selected("cardio-equipment"),warmupActivity:val("warmupActivity")||"Разминка без тренажёров",workingSets:Number(val("workingSets")),returning:$("returning").checked,
        loadUnits:Object.fromEntries(Array.from(document.querySelectorAll("[data-load-unit]")).filter(el=>el.value!==loadUnits[0]).map(el=>[el.dataset.loadUnit,el.value])),height:val("height"),birth:val("birth"),sex:val("sex"),minutes,step,goal:val("goal"),focus:val("focus"),extra:selected("extra"),fixed:$("fixed").checked,legDays:selected("legday").map(Number),equipment:selected("eq")});
      if(prior.mode==="auto"&&(prior.birth!==s.profile.birth||prior.sex!==s.profile.sex||prior.height!==Number(s.profile.height))){
        const rules=s.energyRules||={};
@@ -1311,14 +1382,27 @@ document.addEventListener("change",async ev=>{
  try{await commit(s=>{s.dayPlans={...s.dayPlans,[date]:slot}});if(date===selectedDay){const el=document.querySelector(".hero");if(el)el.outerHTML=hero()}showTaken()}catch(e){note(e.message);showTaken()}finally{busy=false;$("who").disabled=false}
 });
 document.addEventListener("input",ev=>{const x=ev.target;if(!draft||tab!==1)return;
- if(x.dataset.k){const row=x.closest(".set");draft.exercises[row.dataset.i].sets[row.dataset.j][x.dataset.k]=x.type==="checkbox"?x.checked:x.value===""?null:Number(x.value)}
+ if(x.dataset.k){const row=x.closest(".set"),t=draft.exercises[row.dataset.i].sets[row.dataset.j];t[x.dataset.k]=x.type==="checkbox"?x.checked:x.value===""?null:Number(x.value);if(["kg","reps"].includes(x.dataset.k))t.factInput=true}
  if(x.dataset.c!==undefined){
    const c=draft.cardio[x.dataset.c];
+   if(x.dataset.f==="activity"){
+     c.skipped=x.value==="skipped";
+     if(!c.skipped){
+       if(canonicalCardio(c.activity||"")!==canonicalCardio(x.value)){
+         const keys=["time","seconds","distance","distanceKm","hr","speed","incline","power","kcal","resistance","cadence","stairs","floors"];
+         const cache=c.activityValues||={};if(c.activity||hasCardioResult(c))cache[c.activity||"Дорожка"]=Object.fromEntries(keys.filter(k=>Object.hasOwn(c,k)).map(k=>[k,c[k]]));
+         for(const k of keys)delete c[k];Object.assign(c,cache[x.value]||{});
+       }
+       c.activity=x.value;
+     }
+     retain();render();return;
+   }
    if(x.dataset.f==="distance"){c.distanceKm=x.value;delete c.distance}
    else c[x.dataset.f]=x.value;
+   if(!c.activity){const proposed=draft.timing?.cardio[x.dataset.c]?.activity;c.activity=proposed&&cardioEnabled(state.profile,proposed)?proposed:warmupChoice(state.profile).activity}
  }
  if(x.dataset.rest!==undefined&&x.value!==""&&x.validity.valid)draft.exercises[x.dataset.rest].restSeconds=Number(x.value);
- const changedBudget=x.dataset.rest!==undefined||["reps","warmup"].includes(x.dataset.k);
+ const changedBudget=x.dataset.rest!==undefined||["reps","warmup"].includes(x.dataset.k)||x.dataset.c!==undefined;
  if(draft.timing&&changedBudget&&$("workoutBudget"))$("workoutBudget").outerHTML=planOverview(draft);
  if((x.dataset.k==="done"||changedBudget)&&$("setMeter"))$("setMeter").outerHTML=progressMeter();
  if(x.id==="start"&&(x.value.startsWith(selectedDay)||canMoveDate("start")))draft.date=x.value;if(x.id==="end")draft.end=x.value;updateFinishButton();retain()});

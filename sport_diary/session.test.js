@@ -40,7 +40,7 @@ test("Старт, изменение числа подходов, отмена �
  await run('action("sub-0")');assert.equal(run("draft.exercises[0].sets.length"),n);
  await run('action("cancel")');assert.equal(run("draft"),null);assert.deepEqual(entries.get("profile/person1").data.workoutDrafts,{});
  await run('action("start")');node("end").value="2026-01-01T11:00";
- run('draft.end=$("end").value;draft.exercises[0].sets[0].done=true');
+ run('draft.end=$("end").value;Object.assign(draft.exercises[0].sets[0],{kg:0,reps:10,done:true})');
  const original=run("draft.exercises[0].name");
  await run('action("down-0")');
  assert.equal(run("draft.exercises[1].name"),original);
@@ -50,6 +50,7 @@ test("Старт, изменение числа подходов, отмена �
  await run('action("choose-new")');
  assert.equal(run("draft.exercises.at(-1).name"),"Моё упражнение");
  assert.match(run("workout()"),/Сверх бюджета/);
+ await run('commit(s=>s.profile.equipment.push("Подъём гантелей в стороны"))');
  node("exercise-0").value="name:Подъём гантелей в стороны";
  await run('action("choose-0")');
  assert.equal(run("draft.exercises[0].name"),"Подъём гантелей в стороны");
@@ -63,7 +64,7 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(entries.has("profile/person2"),false);
  run('selectDay("2026-01-04")');node("start").value="2026-01-04T23:40";
  await run('action("start")');node("end").value="2026-01-05T00:15";
- run('draft.end=$("end").value;draft.exercises[0].sets[0].done=true');
+ run('draft.end=$("end").value;Object.assign(draft.exercises[0].sets[0],{kg:0,reps:10,done:true})');
  run('tab=1;draft.cardio[0]={time:"12:40",speed:"5.4",incline:"3.5",kcal:"83"}');
  const input={id:"distance0",dataset:{c:"0",f:"distance"},value:"1,14",closest:()=>null,matches:()=>false};
  for(const fn of listeners.input)fn({target:input});
@@ -127,7 +128,7 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(run("draft.exercises.at(-1).optional"),true);
  await run("load()");assert.equal(run("draft.timing.cardio[0].minutes"),15);
  assert.equal(run("draft.cardio.every(c=>!Object.keys(c).length)"),true);
- run('draft.exercises[0].sets.forEach(t=>t.done=true);draft.end="2026-01-06T10:55"');
+ run('draft.exercises[0].sets.forEach(t=>Object.assign(t,{kg:0,reps:10,done:true}));draft.end="2026-01-06T10:55"');
  node("end").value="2026-01-06T10:55";await run('action("finish")');
  const recorded=entries.get("profile/person2").data.workouts[0];
  assert.equal(recorded.exercises.length,initialCount);assert.deepEqual(recorded.cardio,[]);

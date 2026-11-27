@@ -1,7 +1,7 @@
 FROM python:3.13-alpine
 WORKDIR /app
 RUN apk add --no-cache nodejs tzdata
-COPY photos.py ./
+COPY photos.py EXERCISES.md ./
 COPY web/catalog.json ./web/catalog.json
 RUN python photos.py
 COPY food_catalog.py ./

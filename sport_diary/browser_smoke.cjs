@@ -72,6 +72,46 @@ async function exerciseSleep(page, mobile) {
   await sleep.getByText("Основной сон · 7 ч 35 мин", {exact:true}).waitFor();
 }
 
+async function exerciseWorkout(page,mobile){
+  const activate=locator=>mobile?locator.tap():locator.click();
+  await activate(page.locator('[data-tab="3"]'));
+  await activate(page.locator('[data-action="settings"]'));
+  await page.locator('#showSetDone').uncheck();
+  await page.locator('#minutes').fill('60');
+  await page.locator('#warmupActivity').selectOption('Суставная разминка');
+  await activate(page.locator('[data-action="profile"]'));
+  await activate(page.locator('[data-tab="1"]'));
+  await page.locator('#start').fill('2026-01-15T10:00');
+  await activate(page.locator('[data-action="start"]'));
+  assert.equal(await page.locator('[data-k="done"]').count(),0);
+  assert.equal(await page.locator('[data-k="warmup"]').count(),0);
+  assert.equal(await page.locator('#k0_1').inputValue(),'');
+  assert.equal(await page.locator('#r0_1').inputValue(),'');
+  await page.locator('#k0_1').fill('0');await page.locator('#r0_1').fill('10');
+  await page.locator('#k0_2').fill('20');await page.locator('#r0_2').fill('8');
+  assert.equal(await page.locator('[data-c="0"][data-f="activity"] option[value="Лестница"]').count(),0);
+
+  await page.locator('[data-c="0"][data-f="activity"]').selectOption('Суставная разминка');
+  assert.equal(await page.locator('#speed0').count(),0);assert.equal(await page.locator('#power0').count(),0);
+  await page.locator('#sec0').fill('5:00');
+  await page.locator('[data-c="0"][data-f="activity"]').selectOption('skipped');
+  assert.equal(await page.locator('#sec0').count(),0);
+  await page.locator('[data-c="0"][data-f="activity"]').selectOption('Суставная разминка');
+  assert.equal(await page.locator('#sec0').inputValue(),'5:00');
+  await page.locator('[data-c="0"][data-f="activity"]').selectOption('skipped');
+  await page.locator('[data-c="1"][data-f="activity"]').selectOption('skipped');
+  await page.locator('#end').fill('2026-01-15T11:00');
+  await activate(page.locator('[data-action="finish"]'));
+  await page.getByRole('heading',{name:'Итог тренировки',exact:true}).waitFor();
+  assert.match(await page.locator('#content').innerText(),/2 подходов · 160 кг/);
+  await activate(page.locator('[data-action^="edit-workout-"]'));
+  assert.equal(await page.locator('#k0_1').inputValue(),'0');
+  assert.equal(await page.locator('#k0_3').inputValue(),'');
+  assert.equal(await page.locator('[data-c="0"][data-f="activity"]').inputValue(),'skipped');
+  page.once("dialog",dialog=>dialog.accept());
+  await activate(page.locator('[data-action="cancel"]'));
+}
+
 async function run() {
   const preview = await readFile(path.join(__dirname, "../artifacts/sport/Sport-preview.html"));
   const server = createServer((req, res) => {
@@ -92,6 +132,7 @@ async function run() {
         await page.goto(origin);
         await exercisePage(page, mobile);
         await exerciseSleep(page, mobile);
+        await exerciseWorkout(page,mobile);
         assert.deepEqual(errors, []);
         console.log(engine.name() + " · " + device + " · сохранение и повторное открытие прошли");
       } finally { await browser.close(); }

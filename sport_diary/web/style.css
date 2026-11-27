@@ -163,3 +163,6 @@ article:has(#query) label:has(#query) { display: flex; width: 100%; margin-right
 .calendar .chosen .doseMark { border-color:#176e6c; }
 .calendar .chosen .doseMark.taken { background:#176e6c; }
 .calendar .chosen .doseMark.some { background:linear-gradient(90deg,#176e6c 50%,transparent 50%); }
+
+.setRole{grid-column:1/-1;font-size:.88rem;color:var(--muted,#50665d)}
+.set button{min-height:44px}

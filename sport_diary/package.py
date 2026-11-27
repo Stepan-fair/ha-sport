@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 OUT = ROOT.parent / "artifacts" / "sport"
 INSTALL_FILES = (
-    "config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md",
+    "config.yaml", "Dockerfile", "README.md", "DOCS.md", "CHANGELOG.md", "EXERCISES.md",
     "server.py", "photos.py", "measurements.py", "food_catalog.py", "nutrition.py", "health_sensors.py",
     "translations/en.yaml", "translations/ru.yaml",
     "web/index.html", "web/assistant.html", "web/style.css", "web/health.css",

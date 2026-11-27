@@ -29,7 +29,7 @@ const programs = [
 const guides = typeof module === "undefined" ? exerciseCatalog : require("./catalog.json");
 const starterEquipment = [...new Set(programs.flat())];
 function movementKey(name){return guides[name]?.family||name}
-function exerciseLabel(name){return guides[name]?.legacy?name+" · тренажёр не указан":name}
+function exerciseLabel(name){return guides[name]?.label||(guides[name]?.legacy?name+" · тренажёр не указан":name)}
 function newEntryId(){
   if(typeof crypto.randomUUID==="function")return crypto.randomUUID();
   const bytes=crypto.getRandomValues(new Uint8Array(16));
@@ -99,31 +99,76 @@ function completedBefore(workouts,date){
 function workingExercises(w){
  return (w.exercises||[]).filter(e=>e.sets.some(t=>t.done&&!t.warmup&&t.reps>0));
 }
+const cardioMachines=["Дорожка","Лестница","Велотренажёр","Эллипсоид","Гребной тренажёр"];
+const cardioActivities=[...cardioMachines,"Спокойная ходьба","Разминка без тренажёров","Суставная разминка","Динамическая разминка","Другое"];
+const cardioLabels={"Велотренажёр":"Велосипед","Эллипсоид":"Эллипс"};
+function cardioLabel(activity){return cardioLabels[activity]||activity}
+function canonicalCardio(activity){return {"Велосипед":"Велотренажёр","Эллипс":"Эллипсоид"}[activity]||activity}
+function enabledCardio(p){return (p.cardioEquipment??["Дорожка","Велотренажёр","Эллипсоид"]).map(canonicalCardio)}
+function cardioEnabled(p,activity){return !cardioMachines.includes(canonicalCardio(activity))||enabledCardio(p).includes(canonicalCardio(activity))}
+function exerciseEnabled(p,name){return (p.equipment||[]).includes(name)}
+function warmupChoice(p){
+ const selected=canonicalCardio(p.warmupActivity||"Дорожка");
+ return cardioActivities.includes(selected)&&cardioEnabled(p,selected)?{activity:selected}:{activity:"Разминка без тренажёров",notice:"Обычная разминка отключена. Выбери замену в настройках профиля или в результате занятия. Пока предложена разминка без тренажёров."};
+}
+const cardioFields={
+ "Дорожка":["distance","speed","incline"],"Спокойная ходьба":["distance","speed"],
+ "Лестница":["stairs","floors","cadence"],"Велотренажёр":["resistance","cadence","power"],
+ "Эллипсоид":["resistance","cadence","power"],"Гребной тренажёр":["distance","resistance","cadence","power"]
+};
+function cardioRole(c,i){return c.role||(i===0?"Разминка":i===1?"Заминка":"Кардио")}
+function actualSetValid(t){return t.kg!==""&&t.kg!=null&&Number.isFinite(Number(t.kg))&&Number(t.kg)>=0&&t.reps!==""&&t.reps!=null&&Number.isInteger(Number(t.reps))&&Number(t.reps)>0}
+function actualSetEntered(t){return [t.kg,t.reps].some(x=>x!==""&&x!=null)}
+function autoSetEntry(e,t,p){return p.showSetDone===false&&(e.entrySchema===2&&!e.editingSaved||t.factInput||t.done)}
+function setCompleted(e,t,p){return t.done||autoSetEntry(e,t,p)&&actualSetValid(t)}
+function confirmedSets(e,p){
+ return e.sets.map(t=>{
+   const next={...t};
+   const automatic=autoSetEntry(e,t,p);
+   if(automatic&&actualSetEntered(t)&&!actualSetValid(t))throw Error("Заполни вес и повторы в неполном подходе или очисти / удали строку. Для упражнения без отягощения введи 0 кг.");
+   if(automatic)next.done=actualSetValid(t);
+   if(next.done&&!actualSetValid(t))throw Error("У отмеченного подхода укажи повторы и вес. Для упражнения без отягощения введи 0 кг.");
+   if(next.done){next.kg=Number(t.kg);next.reps=Number(t.reps)}
+   return next;
+ });
+}
+// Fresh preferences govern new facts. Disabled saved facts survive byte-for-byte;
+// unsaved hidden input is never promoted into a completed event.
+function applyWorkoutVisibility(w,p,before=null){
+ const result=structuredClone(w);
+ result.exercises=(w.exercises||[]).filter(e=>exerciseEnabled(p,e.name)).map(e=>structuredClone(e));
+ result.exercises.push(...(before?.exercises||[]).filter(e=>!exerciseEnabled(p,e.name)).map(e=>structuredClone(e)));
+ result.cardio=(w.cardio||[]).map((c,i)=>({...c,role:cardioRole(c,i)})).filter(c=>cardioEnabled(p,c.activity));
+ result.cardio.push(...(before?.cardio||[]).filter(c=>!cardioEnabled(p,c.activity)).map(c=>structuredClone(c)));
+ return result;
+}
+function lowerBody(name){return ["Ноги","Ягодицы"].includes(guides[name]?.group)}
+function musclesFor(name){return guides[name]?.muscles||[guides[name]?.group||name]}
 const focusGroups={"ног":"Ноги","тяга":"Спина","Жим":"Грудь"};
 function priorityGroup(p){return focusGroups[p.focus]||p.focus||""}
 function trainingCycle(p,past,date){
  if(p.fixed)return (p.legDays||[2]).includes(new Date(date).getDay())?0:1;
- const legs=p.equipment.some(n=>guides[n]?.group==="Ноги"),upper=p.equipment.some(n=>guides[n]?.group&&guides[n].group!=="Ноги");
+ const legs=p.equipment.some(n=>lowerBody(n)),upper=p.equipment.some(n=>guides[n]?.group&&!lowerBody(n));
  let next=0;
  for(const workout of [...past].reverse()){
    const done=workingExercises(workout);
    if(!done.length)continue;
-   if(next===0&&legs&&!done.some(e=>guides[e.name]?.group==="Ноги"))continue;
-   if(next===1&&upper&&done.every(e=>guides[e.name]?.group==="Ноги"))continue;
+   if(next===0&&legs&&!done.some(e=>lowerBody(e.name)))continue;
+   if(next===1&&upper&&done.every(e=>lowerBody(e.name)))continue;
    next=1-next;
  }
  return next;
 }
 function compoundLift(name){
- return ["leg-press","row","pulldown","chest-press"].includes(movementKey(name))||["Жим лёжа","Жим гантелей на скамье","Присед с гантелью у груди"].includes(name);
+ return ["leg-press","row","pulldown","chest-press","hip-thrust"].includes(movementKey(name))||["Жим лёжа","Жим гантелей на скамье","Присед с гантелью у груди"].includes(name);
 }
 function strengthBlock(e,index){
  const working=e.sets.filter(t=>!t.warmup),explicit=e.sets.length-working.length;
  const compound=compoundLift(e.name),plates=e.name==="Жим ногами под 45°"||/штанг|Жим лёжа/i.test(e.name);
  const setup=plates?4:3,restSeconds=e.restSeconds??(plates?150:compound?120:90);
  if(!e.sets.length)return {minutes:0,ramp:0,working:0,restSeconds};
- const ramp=explicit||(working.length?(index===0?2:compound?1:0):0);
- const performance=working.reduce((sum,t)=>sum+Math.min(40,Math.max(1,Number(t.reps)||10))*0.08,0);
+ const ramp=e.entrySchema===2?explicit:explicit||(working.length?(index===0?2:compound?1:0):0);
+ const performance=working.reduce((sum,t)=>sum+Math.min(40,Math.max(1,Number(t.reps??t.plan?.reps)||10))*0.08,0);
  return {minutes:Math.ceil(setup+ramp*2+performance+Math.max(0,working.length-1)*restSeconds/60),ramp,working:working.length,restSeconds};
 }
 function transitionMinutes(count){return count?4+Math.ceil((count-1)*1.5):0}
@@ -133,7 +178,7 @@ function workoutPace(past,equipment){
    const elapsed=(Date.parse(w.endedAt||w.end)-Date.parse(w.startedAt||w.date))/60000;
    const done=workingExercises(w).map(e=>({...e,sets:e.sets.filter(t=>t.done&&t.reps>0)}));
    if(!(elapsed>=15&&elapsed<=240)||done.length<2||!done.some(e=>available.has(movementKey(e.name))))continue;
-   const cardio=(w.cardio||[]).reduce((sum,c)=>sum+(Number(c.seconds)>0?Number(c.seconds)/60:NaN),0);
+   const cardio=(w.cardio||[]).filter(c=>!c.skipped).reduce((sum,c)=>sum+(Number(c.seconds)>0?Number(c.seconds)/60:NaN),0);
    const base=done.reduce((sum,e,i)=>sum+strengthBlock(e,i).minutes,0);
    const ratio=(elapsed-cardio-transitionMinutes(done.length))/base;
    if(!(ratio>=0.5&&ratio<=2.5))continue;
@@ -173,22 +218,23 @@ function buildWorkoutPlan(s,date){
  const past=completedBefore(s.workouts,date),p=s.profile;
  const strengthDays=past.filter(w=>workingExercises(w).length);
  const cycle=trainingCycle(p,past,date);
- const available=[...new Set(p.equipment)].filter(n=>!guides[n]?.legacy||
+ const available=[...new Set(p.equipment)].filter(n=>guides[n]?.group!=="Кардио").filter(n=>!guides[n]?.legacy||
    !p.equipment.some(other=>!guides[other]?.legacy&&movementKey(other)===movementKey(n)));
  let list=programs[cycle].map(name=>available.includes(name)?name:
    available.find(n=>movementKey(n)===movementKey(name))).filter(Boolean);
  const group=priorityGroup(p);
  const goals=new Set([p.goal,...(p.extra||[])]);
  const budget=Number(p.minutes)||45;
- const timing={budget,...workoutPace(past,p.equipment),cardio:[
-   {activity:"Дорожка",minutes:budget>=40?15:budget>=20?4:3},
-   {activity:"Спокойная ходьба",minutes:budget>=35?5:3}
+ const warmup=warmupChoice(p);
+ const timing={budget,notice:warmup.notice,...workoutPace(past,p.equipment),cardio:[
+   {role:"Разминка",activity:warmup.activity,minutes:budget>=40?15:budget>=20?4:3},
+   {role:"Заминка",activity:"Спокойная ходьба",minutes:budget>=35?5:3}
  ]};
  const priority=available.filter(n=>group&&guides[n]?.group===group);
  if(priority.length&&!list.some(n=>guides[n]?.group===group))list.unshift(priority[0]);
  // The main lift leads the leg session. The chosen focus leads the other session.
- const upperLead=list.find(n=>guides[n]?.group&&guides[n].group!=="Ноги");
- const lead=cycle===0&&list.some(n=>guides[n]?.group==="Ноги")?"Ноги":group||guides[upperLead]?.group;
+ const upperLead=list.find(n=>guides[n]?.group&&!lowerBody(n));
+ const lead=cycle===0&&list.some(n=>lowerBody(n))?"Ноги":group||guides[upperLead]?.group;
  if(lead){
    let i=list.findIndex(n=>guides[n]?.group===lead);
    if(i>0)list.unshift(list.splice(i,1)[0]);
@@ -201,7 +247,7 @@ function buildWorkoutPlan(s,date){
  while(list.length<6){
    const remaining=available.filter(n=>!list.some(chosen=>movementKey(chosen)===movementKey(n)));
    if(!remaining.length)break;
-   const coverage=n=>list.filter(x=>guides[x]?.group===guides[n]?.group).length;
+   const coverage=n=>list.reduce((sum,x)=>sum+musclesFor(x).filter(m=>musclesFor(n).includes(m)).length,0);
    remaining.sort((a,b)=>coverage(a)-coverage(b));
    list.push(remaining[0]);
  }
@@ -233,7 +279,7 @@ function buildWorkoutPlan(s,date){
 }
 function plan(s,date){return buildWorkoutPlan(s,date).exercises}
 const loadUnits=["Как в прежних записях","Весь вес","Одна гантель","Только блины","Шкала тренажёра"];
-function exerciseResultName(e){return e.loadUnit?e.name+" · "+e.loadUnit:e.name}
+function exerciseResultName(e){return e.loadUnit?exerciseLabel(e.name)+" · "+e.loadUnit:exerciseLabel(e.name)}
 function exerciseHistory(name,past,unit){
  const records=[];
  for(const w of past){
@@ -256,7 +302,7 @@ function exerciseFor(name,p,past,date){
  const records=exerciseHistory(name,past,loadUnit);
  const previous=records.find(r=>r.sets.some(t=>t.done));
  const completed=previous?.sets.filter(t=>t.done)||[];
- const targetSets=Number(p.workingSets)||(p.returning||p.minutes<=35?2:completed.length===4?4:3);
+ const targetSets=Number(p.workingSets)||(completed.length===4?4:3);
  const initial=p.goal==="Сила"?8:p.goal==="Выносливость"||(p.extra||[]).includes("Выносливость")?12:10;
  const latest=records[0],earlier=records[1],kg=qualifyingWeight(latest,targetSets);
  const dayGap=(a,b)=>(Date.parse(a)-Date.parse(b))/86400000;
@@ -273,13 +319,16 @@ function exerciseFor(name,p,past,date){
  if(previous){
    if(increase)advice="Две тренировки по 12 во всех рабочих подходах. Предложен следующий шаг веса и 10 повторов.";
    else if(p.returning)advice="Режим возвращения: вес можно уменьшить, автоматическая прибавка отключена.";
+   else if(latest&&dayGap(date,latest.date)>=14||latest&&earlier&&dayGap(latest.date,earlier.date)>=14)advice="Перерыв между занятиями с этим упражнением — 14 дней или больше. Автоматическая прибавка не предлагается; повтори комфортный вес.";
    else if(pair)advice="Критерий выполнен. Для прибавки нужен доступный шаг до 10% рабочего веса.";
    else if(completed.length<previous.planned||previous.sets.some(t=>!t.done))advice="В прошлый раз часть рабочих подходов осталась незавершённой. Можно снизить вес и повторить план в комфортном объёме.";
    else if(kg)advice="Все рабочие подходы по 12. Для прибавки повтори результат ещё раз.";
    else advice="Сохраняй комфортный вес. Для прибавки нужны 3–4 полных рабочих подхода по 12 на одном весе в двух занятиях подряд.";
  }
  const prescription=sets.map(t=>({kg:t.kg,reps:t.reps}));
- return {name,sets,loadUnit,plannedSets:targetSets,prescription,advice,previous:completed.map(t=>t.kg+" × "+t.reps).join(", ")};
+ const actual=prescription.map(t=>({kg:null,reps:null,done:false,warmup:false,plan:{...t}}));
+ actual.unshift({kg:null,reps:null,done:false,warmup:true,plan:{kg:null,reps:10}});
+ return {name,entrySchema:2,sets:actual,loadUnit,plannedSets:targetSets,prescription,advice,previous:completed.map(t=>t.kg+" × "+t.reps).join(", ")};
 }
 function treadmillMet(c){
  const measuredSpeed=Number(c.speed);
@@ -293,11 +342,19 @@ function treadmillMet(c){
  // Gait is unknown between brisk walking and running. Interpolate the endpoints.
  return walking(6)+(speed-6)/2.1*(running(8.1)-walking(6));
 }
+// Compendium of Physical Activities 2024: conditioning 02048/02065/02071/02030;
+// cycling 01200. These population MET estimates do not interpret machine levels.
+function cardioMet(c){
+ const activity=canonicalCardio(c.activity||"Дорожка");
+ if(["Дорожка","Спокойная ходьба"].includes(activity))return treadmillMet(c);
+ return {"Лестница":9.3,"Велотренажёр":6.8,"Эллипсоид":5,"Гребной тренажёр":5,
+   "Разминка без тренажёров":3.5,"Суставная разминка":2.3,"Динамическая разминка":3.5}[activity]??null;
+}
 function workoutEnergy(w,bodyKg){
  const saved=savedWorkoutWeight(w);
  const kg=Number(w.weightSample?.timeBasis==="legacy"?bodyKg??saved:saved??bodyKg);
  const duration=workoutInterval(w).minutes;
- const cardio=w.cardio||[],done=(w.exercises||[]).some(e=>(e.sets||[]).some(t=>t.done&&Number(t.reps)>0));
+ const cardio=(w.cardio||[]).filter(c=>!c.skipped),done=(w.exercises||[]).some(e=>(e.sets||[]).some(t=>t.done&&Number(t.reps)>0));
  const treadmillMinutes=cardio.reduce((sum,c)=>sum+Number(c.seconds)/60,0);
  if(!(duration>0)||!Number.isFinite(treadmillMinutes)||treadmillMinutes>duration||cardio.some(c=>!(Number(c.seconds)>0)))return {gross:null,minutes:0};
  const strength=done?duration-treadmillMinutes:0;
@@ -307,7 +364,7 @@ function workoutEnergy(w,bodyKg){
  let gross=strength>0?3.5*kcalPerMetMinute*strength:0;
  for(const c of cardio){
    if(c.kcal!=null&&c.kcal!==""&&Number.isFinite(Number(c.kcal))&&Number(c.kcal)>=0)gross+=Number(c.kcal);
-   else if(kg>0&&(!c.activity||["Дорожка","Спокойная ходьба"].includes(c.activity)))gross+=treadmillMet(c)*kcalPerMetMinute*Number(c.seconds)/60;
+   else if(kg>0&&cardioMet(c)!=null)gross+=cardioMet(c)*kcalPerMetMinute*Number(c.seconds)/60;
    else return {gross:null,minutes};
  }
  return {gross,minutes};
@@ -315,7 +372,7 @@ function workoutEnergy(w,bodyKg){
 function total(w,bodyKg){
  const sets=(w.exercises||[]).flatMap(e=>e.sets||[]).filter(t=>t.done);
  const minutes=workoutInterval(w).minutes;
- const consoleEntries=(w.cardio||[]).filter(c=>c.kcal!=null&&c.kcal!=="");
+ const consoleEntries=(w.cardio||[]).filter(c=>!c.skipped&&c.kcal!=null&&c.kcal!=="");
  const consoleKcal=consoleEntries.reduce((sum,c)=>sum+Number(c.kcal),0);
  const energy=workoutEnergy(w,bodyKg);
  return {sets:sets.length,volume:sets.reduce((n,t)=>n+t.kg*t.reps,0),minutes:Math.round(minutes),
@@ -385,4 +442,4 @@ function schedule(name,slot){
  if(label==="Протеин"&&slot!=="Отдых")return [trainingSlots[slot],"После зала, если белковой еды не хватает. Можно с другим приёмом пищи."];
  return [item[2],item[3]];
 }
-if(typeof module!=="undefined") module.exports={diaryTime,diaryInstant,setDiaryZone,exerciseResultName,workoutEnergy,workoutWeightAtStart,workoutInterval,validBodyWeight,preferMeasurement,plan,buildWorkoutPlan,estimateWorkout,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry,recordedDose,replaceRecordedDose,addDoseEntries};
+if(typeof module!=="undefined") module.exports={exerciseFor,exerciseLabel,cardioMachines,cardioActivities,cardioLabel,canonicalCardio,enabledCardio,cardioEnabled,exerciseEnabled,warmupChoice,cardioFields,cardioMet,cardioRole,actualSetValid,actualSetEntered,autoSetEntry,setCompleted,confirmedSets,applyWorkoutVisibility,diaryTime,diaryInstant,setDiaryZone,exerciseResultName,workoutEnergy,workoutWeightAtStart,workoutInterval,validBodyWeight,preferMeasurement,plan,buildWorkoutPlan,estimateWorkout,atTime,measurementAt,total,canonicalSupp,schedule,trainingSlot,doseEntry,recordedDose,replaceRecordedDose,addDoseEntries};

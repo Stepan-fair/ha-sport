@@ -25,7 +25,13 @@
     "reference": "https://www.panattasport.com/en/fit-evo/horizontal-leg-press/",
     "visualSource": "Panatta",
     "visualUrl": "https://www.panattasport.nl/wp-content/uploads/2019/01/pic-1fe085.jpg",
-    "family": "leg-press"
+    "family": "leg-press",
+    "equipment": "Horizontal Leg Press / Seated Leg Press",
+    "muscles": [
+      "Квадрицепсы",
+      "Ягодицы"
+    ],
+    "imageLicense": "Внешнее изображение, права принадлежат указанному источнику; в пакет не включается."
   },
   "Жим ногами под 45°": {
     "group": "Ноги",
@@ -37,7 +43,14 @@
     "avoid": "Не опускай сани до подкручивания таза. Записывай вес блинов одинаковым способом.",
     "primary": "Квадрицепсы, большие ягодичные",
     "secondary": "Большая приводящая мышца",
-    "family": "leg-press"
+    "family": "leg-press",
+    "equipment": "45° Leg Press",
+    "muscles": [
+      "Квадрицепсы",
+      "Ягодицы"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание ног": {
     "group": "Ноги",
@@ -62,7 +75,13 @@
     "avoid": "Не поднимай таз и не бросай груз на обратном ходу.",
     "primary": "Задняя поверхность бедра",
     "secondary": "Икроножные",
-    "family": "leg-curl"
+    "family": "leg-curl",
+    "equipment": "Seated Leg Curl",
+    "muscles": [
+      "Ноги"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Разгибание ног": {
     "group": "Ноги",
@@ -73,7 +92,14 @@
     "movement": "Удерживая бёдра на сиденье, плавно подними валик разгибанием коленей. Контролируй опускание.",
     "avoid": "Не разгоняй рычаг корпусом и не бей в ограничитель.",
     "primary": "Квадрицепсы",
-    "secondary": "Мышцы корпуса удерживают посадку"
+    "secondary": "Мышцы корпуса удерживают посадку",
+    "equipment": "Leg Extension",
+    "family": "Разгибание ног",
+    "muscles": [
+      "Ноги"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание ног лёжа": {
     "group": "Ноги",
@@ -85,10 +111,16 @@
     "avoid": "Не отрывай бёдра и не прогибай поясницу ради большей амплитуды.",
     "primary": "Задняя поверхность бедра",
     "secondary": "Икроножные",
-    "family": "leg-curl"
+    "family": "leg-curl",
+    "equipment": "Lying Leg Curl",
+    "muscles": [
+      "Ноги"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Разведение бёдер сидя": {
-    "group": "Ноги",
+    "group": "Ягодицы",
     "photo": "Thigh_Abductor",
     "station": "Hip Abduction",
     "recognize": "Сиденье с двумя подушками по наружным сторонам коленей. На схеме стрелки направлены наружу.",
@@ -96,7 +128,14 @@
     "movement": "Разведи бёдра, ненадолго задержись, плавно сведи их обратно.",
     "avoid": "Не раскачивай корпус и не своди колени ударом.",
     "primary": "Средние и малые ягодичные",
-    "secondary": "Верхние пучки больших ягодичных"
+    "secondary": "Верхние пучки больших ягодичных",
+    "muscles": [
+      "Ягодицы"
+    ],
+    "family": "hip-abduction",
+    "equipment": "Hip Abduction",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сведение бёдер сидя": {
     "group": "Ноги",
@@ -107,7 +146,14 @@
     "movement": "Плавно сведи ноги давлением на подушки, затем медленно разведи до выставленного положения.",
     "avoid": "Избегай принудительного глубокого растяжения и рывка на старте.",
     "primary": "Приводящие мышцы бедра",
-    "secondary": "Мышцы корпуса удерживают таз"
+    "secondary": "Мышцы корпуса удерживают таз",
+    "equipment": "Hip Adduction",
+    "family": "Сведение бёдер сидя",
+    "muscles": [
+      "Ноги"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Подъём на носки сидя": {
     "group": "Ноги",
@@ -118,7 +164,14 @@
     "movement": "Подними пятки, сними стопор по схеме машины. Медленно опусти и подними пятки, в конце зафиксируй рычаг.",
     "avoid": "Не пружинь внизу и не скатывай стопы на наружный край.",
     "primary": "Камбаловидные",
-    "secondary": "Икроножные"
+    "secondary": "Икроножные",
+    "equipment": "Seated Calf Raise",
+    "family": "Подъём на носки сидя",
+    "muscles": [
+      "Ноги"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Присед с гантелью у груди": {
     "group": "Ноги",
@@ -129,7 +182,15 @@
     "movement": "Сгибая колени и бёдра, опустись до устойчивой глубины. Надави всей стопой в пол и выпрямись.",
     "avoid": "Сократи глубину, если пятки отрываются или теряется контроль спины.",
     "primary": "Квадрицепсы, большие ягодичные",
-    "secondary": "Приводящие, мышцы корпуса"
+    "secondary": "Приводящие, мышцы корпуса",
+    "equipment": "Goblet Squat",
+    "family": "Присед с гантелью у груди",
+    "muscles": [
+      "Квадрицепсы",
+      "Ягодицы"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Вертикальная тяга": {
     "group": "Спина",
@@ -154,7 +215,13 @@
     "avoid": "Не тяни за голову, не откидывайся назад рывком.",
     "primary": "Широчайшие",
     "secondary": "Бицепсы, средняя и нижняя части трапециевидных",
-    "family": "pulldown"
+    "family": "pulldown",
+    "equipment": "Lat Pulldown",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Вертикальная тяга в рычажном тренажёре": {
     "group": "Спина",
@@ -169,7 +236,12 @@
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-front-lat-pulldown",
     "visualSource": "Hammer Strength",
     "visualUrl": "https://shop.lifefitness.com/cdn/shop/files/hammer-strength-iso-lateral-front-lat-pulldown-charcoal-black-1000x1000_1200x1200.jpg?v=1748945158",
-    "family": "pulldown"
+    "family": "pulldown",
+    "equipment": "Lever Front Lat Pulldown",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Внешнее изображение, права принадлежат указанному источнику; в пакет не включается."
   },
   "Горизонтальная тяга": {
     "group": "Спина",
@@ -194,7 +266,13 @@
     "avoid": "Не превращай тягу в раскачивание корпусом и не поднимай плечи к ушам.",
     "primary": "Широчайшие, ромбовидные, средняя трапеция",
     "secondary": "Бицепсы, задние дельты",
-    "family": "row"
+    "family": "row",
+    "equipment": "Seated Cable Row",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Горизонтальная тяга рычажная с упором грудью": {
     "group": "Спина",
@@ -209,7 +287,12 @@
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-row",
     "visualSource": "Hammer Strength",
     "visualUrl": "https://shop.lifefitness.com/cdn/shop/products/hammer-strength-plate-loaded-iso-later-rowing-machine-charcoal-charcoal-front-1000x1000_1200x1200.jpg?v=1748945275",
-    "family": "row"
+    "family": "row",
+    "equipment": "Chest-supported Machine Row",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Внешнее изображение, права принадлежат указанному источнику; в пакет не включается."
   },
   "Тяга гантели с опорой": {
     "group": "Спина",
@@ -220,7 +303,14 @@
     "movement": "Веди локоть к тазу и опусти гантель до контролируемого вытяжения. Повтори на второй стороне.",
     "avoid": "Не разворачивай грудную клетку вверх при подъёме.",
     "primary": "Широчайшие, средняя часть спины",
-    "secondary": "Бицепсы, задние дельты"
+    "secondary": "Бицепсы, задние дельты",
+    "equipment": "One-arm Dumbbell Row",
+    "family": "Тяга гантели с опорой",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Тяга прямыми руками с блока": {
     "group": "Спина",
@@ -231,7 +321,14 @@
     "movement": "Проведи рукоять по дуге к бёдрам за счёт плеч, удерживая угол в локтях. Контролируй возврат.",
     "avoid": "Не разгибай локти как при упражнении на трицепс и не подталкивай рукоять всем корпусом.",
     "primary": "Широчайшие",
-    "secondary": "Большие круглые мышцы, длинная головка трицепса"
+    "secondary": "Большие круглые мышцы, длинная головка трицепса",
+    "equipment": "Straight-arm Pulldown",
+    "family": "Тяга прямыми руками с блока",
+    "muscles": [
+      "Спина"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Жим от груди": {
     "group": "Грудь",
@@ -256,7 +353,13 @@
     "avoid": "Не выталкивай плечи вперёд и не бросай вес в исходное положение.",
     "primary": "Большие грудные",
     "secondary": "Трицепсы, передние дельты",
-    "family": "chest-press"
+    "family": "chest-press",
+    "equipment": "Seated Chest Press",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Жим от груди в наклонном рычажном тренажёре": {
     "group": "Грудь",
@@ -271,7 +374,12 @@
     "reference": "https://www.lifefitness.com/en-us/catalog/strength-training/plate-loaded/plate-loaded-iso-lateral-incline-press",
     "visualSource": "Hammer Strength",
     "visualUrl": "https://shop.lifefitness.com/cdn/shop/files/Hammer_Strength_-_Plate_Loaded_-_Iso-Lateral_-_Incline_Press_IL-IPH_3_d21c410a-39c6-4986-a867-e3fd208fca93.jpg?v=1748945164&width=900",
-    "family": "chest-press"
+    "family": "chest-press",
+    "equipment": "Incline Chest Press",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Внешнее изображение, права принадлежат указанному источнику; в пакет не включается."
   },
   "Жим лёжа": {
     "group": "Грудь",
@@ -282,7 +390,14 @@
     "movement": "Сними гриф с опоры, опусти к средней или нижней части груди до комфортной глубины. Выжми вверх и верни на обе опоры.",
     "avoid": "Избегай отбива от груди и тяжёлой попытки без страховки.",
     "primary": "Большие грудные",
-    "secondary": "Трицепсы, передние дельты"
+    "secondary": "Трицепсы, передние дельты",
+    "equipment": "Barbell Bench Press",
+    "family": "Жим лёжа",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Жим гантелей на скамье": {
     "group": "Грудь",
@@ -293,7 +408,14 @@
     "movement": "Выжми обе гантели от груди. Контролируя стороны независимо, опусти их до удобной глубины.",
     "avoid": "Не сталкивай гантели вверху. Для сравнения записывай массу одной гантели.",
     "primary": "Большие грудные",
-    "secondary": "Передние дельты, трицепсы"
+    "secondary": "Передние дельты, трицепсы",
+    "equipment": "Dumbbell Bench Press",
+    "family": "Жим гантелей на скамье",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Жим гантелей на наклонной скамье": {
     "group": "Грудь",
@@ -304,7 +426,14 @@
     "movement": "Выжми гантели вверх от верхней части груди. Контролируй опускание, удерживая предплечья под грузом.",
     "avoid": "Не поднимай плечи к ушам и не увеличивай прогиб ради повтора.",
     "primary": "Большие грудные с акцентом на верхние пучки",
-    "secondary": "Передние дельты, трицепсы"
+    "secondary": "Передние дельты, трицепсы",
+    "equipment": "Incline Dumbbell Press",
+    "family": "Жим гантелей на наклонной скамье",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сведение рук в тренажёре": {
     "group": "Грудь",
@@ -315,7 +444,14 @@
     "movement": "Сведи рычаги перед собой плавной дугой. Сохрани угол локтя и медленно верни рычаги.",
     "avoid": "Не заводи плечи далеко назад и не ускоряйся за счёт корпуса.",
     "primary": "Большие грудные",
-    "secondary": "Передние дельты"
+    "secondary": "Передние дельты",
+    "equipment": "Pec Deck / Chest Fly",
+    "family": "Сведение рук в тренажёре",
+    "muscles": [
+      "Грудь"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Обратная разводка гантелей": {
     "group": "Плечи",
@@ -326,7 +462,14 @@
     "movement": "Разведи гантели в стороны без рывка, затем опусти их по той же дуге.",
     "avoid": "Не поднимай корпус для разгона. Записывай массу одной гантели.",
     "primary": "Задние дельты",
-    "secondary": "Ромбовидные, средняя трапеция"
+    "secondary": "Ромбовидные, средняя трапеция",
+    "equipment": "Rear Delt Raise",
+    "family": "Обратная разводка гантелей",
+    "muscles": [
+      "Плечи"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Подъём гантелей в стороны": {
     "group": "Плечи",
@@ -337,7 +480,14 @@
     "movement": "Поднимай руки в стороны и немного вперёд до удобной высоты, плавно опускай.",
     "avoid": "Не забрасывай гантели ногами и не пожимай плечами.",
     "primary": "Средние дельты",
-    "secondary": "Надостные, мышцы вращения лопатки"
+    "secondary": "Надостные, мышцы вращения лопатки",
+    "equipment": "Dumbbell Lateral Raise",
+    "family": "Подъём гантелей в стороны",
+    "muscles": [
+      "Плечи"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Обратная разводка в тренажёре": {
     "group": "Плечи",
@@ -348,7 +498,14 @@
     "movement": "Удерживая грудь у подушки, разведи руки в стороны. Верни их под контролем с мягкими локтями.",
     "avoid": "Не разгибай спину ради увеличения амплитуды.",
     "primary": "Задние дельты",
-    "secondary": "Средняя трапеция, ромбовидные"
+    "secondary": "Средняя трапеция, ромбовидные",
+    "equipment": "Rear Delt / Reverse Fly",
+    "family": "Обратная разводка в тренажёре",
+    "muscles": [
+      "Плечи"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Жим вверх в тренажёре": {
     "group": "Плечи",
@@ -359,7 +516,14 @@
     "movement": "Плавно выжми рычаги вверх и верни к исходной высоте, удерживая стопы и спину на опорах.",
     "avoid": "Избегай резкого прогиба и принудительно глубокой нижней точки.",
     "primary": "Передние и средние дельты",
-    "secondary": "Трицепсы"
+    "secondary": "Трицепсы",
+    "equipment": "Shoulder Press",
+    "family": "Жим вверх в тренажёре",
+    "muscles": [
+      "Плечи"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Тяга каната к лицу": {
     "group": "Плечи",
@@ -370,7 +534,14 @@
     "movement": "Тяни концы каната к обеим сторонам лица, разводя руки и плавно ведя локти назад. Верни руки вперёд.",
     "avoid": "Не тяни к шее и не откидывайся корпусом.",
     "primary": "Задние дельты, средняя трапеция",
-    "secondary": "Ромбовидные, наружные ротаторы плеча"
+    "secondary": "Ромбовидные, наружные ротаторы плеча",
+    "equipment": "Face Pull",
+    "family": "Тяга каната к лицу",
+    "muscles": [
+      "Плечи"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание рук со штангой": {
     "group": "Руки",
@@ -381,7 +552,14 @@
     "movement": "Согни локти и подними гриф, сохраняя плечи спокойными. Медленно разогни руки.",
     "avoid": "Не раскачивай спину. Если масса грифа неизвестна, укажи в заметке блины на сторону.",
     "primary": "Бицепсы, плечевые мышцы",
-    "secondary": "Плечелучевые, мышцы хвата"
+    "secondary": "Плечелучевые, мышцы хвата",
+    "equipment": "Barbell Curl",
+    "family": "Сгибание рук со штангой",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Разгибание рук на блоке": {
     "group": "Руки",
@@ -392,7 +570,14 @@
     "movement": "Разогни руки к бёдрам, оставляя плечи на месте. Плавно согни локти обратно.",
     "avoid": "Не дави на рукоять всем телом и не заламывай запястья.",
     "primary": "Трицепсы",
-    "secondary": "Мышцы предплечий удерживают рукоять"
+    "secondary": "Мышцы предплечий удерживают рукоять",
+    "equipment": "Triceps Pushdown",
+    "family": "Разгибание рук на блоке",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Разгибание рук с канатом": {
     "group": "Руки",
@@ -403,7 +588,14 @@
     "movement": "Разогни руки вниз и слегка разведи концы внизу без движения плечами. Верни под контролем.",
     "avoid": "Не отводи локти назад ради лишней амплитуды.",
     "primary": "Трицепсы",
-    "secondary": "Предплечья удерживают канат"
+    "secondary": "Предплечья удерживают канат",
+    "equipment": "Rope Pushdown",
+    "family": "Разгибание рук с канатом",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание рук с гантелями": {
     "group": "Руки",
@@ -414,10 +606,17 @@
     "movement": "Согни локти, поворачивая ладони кверху по удобной траектории. Опусти до контролируемого выпрямления.",
     "avoid": "Не выбрасывай локти вперёд и не помогай движением таза.",
     "primary": "Бицепсы, плечевые мышцы",
-    "secondary": "Плечелучевые, мышцы хвата"
+    "secondary": "Плечелучевые, мышцы хвата",
+    "equipment": "Dumbbell Biceps Curl",
+    "family": "Сгибание рук с гантелями",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Ягодичный мост в тренажёре Смита": {
-    "group": "Ноги",
+    "group": "Ягодицы",
     "photo": null,
     "reference": "https://www.strengthlog.com/smith-machine-hip-thrust/",
     "visualSource": "StrengthLog",
@@ -428,7 +627,17 @@
     "movement": "Упрись лопатками в скамью, поставь стопы всей подошвой. Подними таз до линии плечи–таз–колени, затем плавно опусти. Вверху голени примерно вертикальны.",
     "avoid": "Сохраняй опору стоп и верхней части спины, заканчивай подъём без переразгибания поясницы. Запиши в заметке, считаешь ли ты массу каретки. Она зависит от модели.",
     "primary": "Большие ягодичные мышцы",
-    "secondary": "Приводящие и квадрицепсы помогают, мышцы корпуса удерживают положение таза"
+    "secondary": "Приводящие и квадрицепсы помогают, мышцы корпуса удерживают положение таза",
+    "label": "Хип-траст в тренажёре Смита",
+    "family": "hip-thrust",
+    "equipment": "smith-machine",
+    "muscles": [
+      "Ягодицы",
+      "Квадрицепсы"
+    ],
+    "imageLicense": "© StrengthLog. Разрешение на включение изображения в поставку не подтверждено.",
+    "linkOnly": true,
+    "imageNote": "Фото и демонстрация именно варианта в Смите — на странице StrengthLog. Изображение не включено в поставку: свободная лицензия не подтверждена."
   },
   "Сгибание рук на скамье Скотта с EZ-грифом": {
     "group": "Руки",
@@ -440,7 +649,14 @@
     "movement": "Согни руки, удерживая плечи на опоре. Медленно опусти гриф до комфортного разгибания и начни следующий повтор без отскока.",
     "avoid": "Сохраняй запястья ровными. При возвращении грифа убедись, что обе стороны легли на подставку.",
     "primary": "Бицепсы и плечевые мышцы",
-    "secondary": "Плечелучевые помогают сгибать локти, мышцы предплечий удерживают гриф"
+    "secondary": "Плечелучевые помогают сгибать локти, мышцы предплечий удерживают гриф",
+    "equipment": "EZ Bar Preacher Curl · бицепс на скамье Скотта",
+    "family": "Сгибание рук на скамье Скотта с EZ-грифом",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание рук стоя с EZ-грифом": {
     "group": "Руки",
@@ -452,7 +668,14 @@
     "movement": "Согни локти, сохраняя плечи близко к туловищу. Плавно опусти гриф по той же траектории.",
     "avoid": "Не подбрасывай гриф корпусом. Используй одинаковый способ учёта веса во всех тренировках.",
     "primary": "Бицепсы и плечевые мышцы",
-    "secondary": "Плечелучевые и мышцы хвата"
+    "secondary": "Плечелучевые и мышцы хвата",
+    "equipment": "Standing EZ Bar Curl",
+    "family": "Сгибание рук стоя с EZ-грифом",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Сгибание одной руки с гантелью на скамье Скотта": {
     "group": "Руки",
@@ -464,7 +687,14 @@
     "movement": "Подними гантель сгибанием локтя, плавно опусти и повтори другой рукой. В поле веса укажи массу одной гантели.",
     "avoid": "Сохраняй плечо на подушке и не разворачивай туловище вслед за гантелью.",
     "primary": "Бицепс и плечевая мышца рабочей руки",
-    "secondary": "Плечелучевая и мышцы хвата"
+    "secondary": "Плечелучевая и мышцы хвата",
+    "equipment": "Single Arm Dumbbell Preacher Curl",
+    "family": "Сгибание одной руки с гантелью на скамье Скотта",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
   },
   "Молотковые сгибания": {
     "group": "Руки",
@@ -475,6 +705,244 @@
     "movement": "Согни локти, сохраняя нейтральный хват, и опусти гантели без раскачивания.",
     "avoid": "Не разворачивай запястья наверху и не подбрасывай вес.",
     "primary": "Плечевые и плечелучевые мышцы, бицепсы",
-    "secondary": "Мышцы хвата"
+    "secondary": "Мышцы хвата",
+    "equipment": "Hammer Curl",
+    "family": "Молотковые сгибания",
+    "muscles": [
+      "Руки"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Хип-траст со штангой": {
+    "group": "Ягодицы",
+    "photo": "Barbell_Hip_Thrust",
+    "reference": "https://github.com/yuhonas/free-exercise-db/blob/main/exercises/Barbell_Hip_Thrust.json",
+    "station": "Barbell Hip Thrust · свободная штанга и скамья",
+    "recognize": "Свободная штанга с блинами перед устойчивой скамьёй. Верх спины опирается на скамью; у штанги нет направляющих. Это не мост лёжа на полу.",
+    "setup": "Проверь устойчивость и высоту скамьи. Закрепи блины, положи мягкую накладку на гриф у сгиба бёдер. Начни с лёгкого веса, оставь место для безопасного выхода.",
+    "movement": "Опираясь верхом спины на край скамьи и всей стопой на пол, подними таз до линии плечи–таз–колени. Опусти таз под контролем; удерживай гриф от перекатывания.",
+    "avoid": "Не заканчивай подъём прогибом поясницы и не отрывай стопы. Масса свободного грифа и вес каретки Смита различаются: записывай способ учёта отдельно.",
+    "primary": "Большие ягодичные мышцы",
+    "secondary": "Приводящие и квадрицепсы помогают, мышцы корпуса удерживают положение таза",
+    "label": "Хип-траст со штангой",
+    "family": "hip-thrust",
+    "equipment": "barbell",
+    "muscles": [
+      "Ягодицы",
+      "Квадрицепсы"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Скручивания на полу": {
+    "group": "Пресс и корпус",
+    "photo": "Crunches",
+    "station": "Crunch · скручивание на полу",
+    "recognize": "Коврик и свободное место. Согнутые ноги стоят на полу, таз остаётся на опоре.",
+    "setup": "Ляг на спину, согни колени, положи руки на грудь или легко у висков. Для работы без отягощения записывай 0 кг.",
+    "movement": "Выдохни и слегка приподними лопатки сокращением мышц живота, затем плавно опустись. Амплитуда небольшая.",
+    "avoid": "Не тяни голову руками, не поднимай всё туловище рывком и не задерживай дыхание.",
+    "primary": "Прямая мышца живота",
+    "secondary": "Косые мышцы живота стабилизируют корпус",
+    "family": "trunk-flexion",
+    "equipment": "bodyweight",
+    "muscles": [
+      "Пресс и корпус"
+    ],
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Дорожка": {
+    "group": "Кардио",
+    "photo": "Walking_Treadmill",
+    "station": "Treadmill · дорожка",
+    "recognize": "Движущаяся лента, боковые платформы и консоль с аварийной остановкой.",
+    "setup": "Прикрепи аварийный ключ к одежде. Начни с медленной ленты и нулевого наклона.",
+    "movement": "Иди ровным шагом, затем постепенно выбери удобный темп. Перед сходом замедли и останови ленту.",
+    "avoid": "Не сходи с движущейся ленты и не держи вес тела на поручнях.",
+    "primary": "Мышцы ног и ягодиц",
+    "secondary": "Мышцы корпуса поддерживают позу",
+    "equipment": "Дорожка",
+    "family": "cardio",
+    "reference": "https://github.com/yuhonas/free-exercise-db",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Лестница": {
+    "group": "Кардио",
+    "photo": "Stairmaster",
+    "station": "Stair climber · лестничный тренажёр",
+    "recognize": "Движущиеся ступени, поручни и консоль. На фото один вариант лестничного тренажёра; форма ступеней и органы управления твоей модели могут отличаться.",
+    "setup": "Найди кнопку остановки, встань устойчиво и выбери самый медленный режим.",
+    "movement": "Переноси вес на следующую ступень всей доступной опорной частью стопы. Удерживай корпус вертикально.",
+    "avoid": "Не опирайся всем весом на поручни и не гонись за частотой шагов.",
+    "primary": "Квадрицепсы и большие ягодичные",
+    "secondary": "Икры, мышцы задней поверхности бедра и корпуса",
+    "equipment": "Лестница",
+    "family": "cardio",
+    "reference": "https://github.com/yuhonas/free-exercise-db",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Велотренажёр": {
+    "group": "Кардио",
+    "photo": "Bicycling_Stationary",
+    "station": "Stationary bicycle · велосипед",
+    "recognize": "Седло, неподвижная рама и педали; варианты сиденья и консоли отличаются.",
+    "setup": "Настрой седло: в нижней точке педали колено остаётся немного согнутым. Проверь ремешки и досягаемость руля.",
+    "movement": "Крути педали плавно и начни с малого сопротивления; удерживай таз на седле.",
+    "avoid": "Не выпрямляй колено до жёсткого упора и не раскачивай таз. Уровень сопротивления сравнивай только на этой модели.",
+    "primary": "Квадрицепсы и ягодичные",
+    "secondary": "Задняя поверхность бедра, икры, мышцы корпуса",
+    "equipment": "Велотренажёр",
+    "family": "cardio",
+    "reference": "https://github.com/yuhonas/free-exercise-db",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Эллипсоид": {
+    "group": "Кардио",
+    "photo": "Elliptical_Trainer",
+    "station": "Elliptical trainer · эллипс",
+    "recognize": "Две длинные педали движутся по овальной траектории, рядом подвижные или фиксированные рукояти.",
+    "setup": "Поднимайся, держась за неподвижную рукоять. Выбери малое сопротивление и подходящую длину шага, если она регулируется.",
+    "movement": "Плавно переноси нагрузку между ногами; колени следуют направлению стоп. Подключай подвижные рукояти без рывков.",
+    "avoid": "Не отрывайся от педалей и не переноси весь вес на рукояти.",
+    "primary": "Квадрицепсы и ягодичные",
+    "secondary": "Икры, задняя поверхность бедра, мышцы спины и рук при работе рукоятями",
+    "equipment": "Эллипсоид",
+    "family": "cardio",
+    "reference": "https://github.com/yuhonas/free-exercise-db",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Гребной тренажёр": {
+    "group": "Кардио",
+    "photo": "Rowing_Stationary",
+    "station": "Rowing ergometer · гребля",
+    "recognize": "Сиденье на рельсе, упоры для стоп и рукоять с тросом или цепью.",
+    "setup": "Отрегулируй упоры и ремни по стопе. Для начала выбери небольшое сопротивление.",
+    "movement": "В толчке сначала разгибай ноги, затем немного отклоняй корпус и подтяни рукоять к нижним рёбрам. Возвращай руки, корпус, затем сгибай ноги.",
+    "avoid": "Не начинай толчок только руками и не округляй поясницу. Сначала освой последовательность на спокойном темпе.",
+    "primary": "Квадрицепсы, ягодичные и мышцы спины",
+    "secondary": "Задняя поверхность бедра, мышцы корпуса, рук и хвата",
+    "equipment": "Гребной тренажёр",
+    "family": "cardio",
+    "reference": "https://github.com/yuhonas/free-exercise-db",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Спокойная ходьба": {
+    "group": "Кардио",
+    "photo": null,
+    "station": "Ходьба без тренажёра",
+    "recognize": "Свободная ровная дорожка в помещении или на улице; оборудование не требуется.",
+    "setup": "Выбери свободный маршрут и устойчивую обувь.",
+    "movement": "Иди в комфортном темпе с естественным движением рук.",
+    "avoid": "Не ускоряйся, если для спокойной заминки требуется снизить нагрузку.",
+    "primary": "Мышцы ног и ягодиц",
+    "secondary": "Мышцы корпуса",
+    "equipment": "Спокойная ходьба",
+    "family": "cardio",
+    "reference": "https://www.acefitness.org/resources/everyone/blog/7556/at-home-exercise-routines-for-busy-parents/",
+    "imageLicense": "Unlicense / public domain; источник Free Exercise DB",
+    "visualSource": "ACE",
+    "linkOnly": true,
+    "muscles": [
+      "Кардио"
+    ]
+  },
+  "Разминка без тренажёров": {
+    "group": "Кардио",
+    "photo": "Arm_Circles",
+    "station": "Без оборудования · движения для подготовки",
+    "recognize": "Свободное место без тренажёра. На фото показан один пример движения, а не вся последовательность разминки.",
+    "setup": "Проверь, что вокруг достаточно места. Выбери движения, которые выполняются свободно и без боли.",
+    "movement": "Начни со спокойного шага на месте, затем добавь небольшие круги плечами и руками, движения голеностопов и несколько спокойных приседаний без веса.",
+    "avoid": "Не пружинь в крайнем положении и не форсируй амплитуду. Обычная разминка не заменяет отдельный подводящий подход силового упражнения.",
+    "primary": "Мышцы ног, ягодиц и плеч в зависимости от выбранных движений",
+    "secondary": "Мышцы корпуса поддерживают устойчивость",
+    "equipment": "Разминка без тренажёров",
+    "family": "cardio",
+    "reference": "https://www.acefitness.org/resources/everyone/blog/5779/the-common-mistakes-people-make-when-warming-up/",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Суставная разминка": {
+    "group": "Кардио",
+    "photo": "Ankle_Circles",
+    "station": "Без оборудования · суставные движения",
+    "recognize": "Свободное место без тренажёра. На фото показан один пример движения, а не вся последовательность разминки.",
+    "setup": "Проверь, что вокруг достаточно места. Выбери движения, которые выполняются свободно и без боли.",
+    "movement": "Плавно вращай плечами и кистями, затем поочерёдно двигай голеностопами. Выбирай небольшую контролируемую амплитуду.",
+    "avoid": "Не пружинь в крайнем положении и не форсируй амплитуду. Обычная разминка не заменяет отдельный подводящий подход силового упражнения.",
+    "primary": "Мышцы ног, ягодиц и плеч в зависимости от выбранных движений",
+    "secondary": "Мышцы корпуса поддерживают устойчивость",
+    "equipment": "Суставная разминка",
+    "family": "cardio",
+    "reference": "https://www.acefitness.org/resources/everyone/blog/5779/the-common-mistakes-people-make-when-warming-up/",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Динамическая разминка": {
+    "group": "Кардио",
+    "photo": "Arm_Circles",
+    "station": "Без оборудования · динамические движения",
+    "recognize": "Свободное место без тренажёра. На фото показан один пример движения, а не вся последовательность разминки.",
+    "setup": "Проверь, что вокруг достаточно места. Выбери движения, которые выполняются свободно и без боли.",
+    "movement": "Чередуй шаг на месте, круги руками и спокойные выпады или приседания без веса в удобной амплитуде. Постепенно добавь движения предстоящих упражнений.",
+    "avoid": "Не пружинь в крайнем положении и не форсируй амплитуду. Обычная разминка не заменяет отдельный подводящий подход силового упражнения.",
+    "primary": "Мышцы ног, ягодиц и плеч в зависимости от выбранных движений",
+    "secondary": "Мышцы корпуса поддерживают устойчивость",
+    "equipment": "Динамическая разминка",
+    "family": "cardio",
+    "reference": "https://www.acefitness.org/resources/everyone/blog/5779/the-common-mistakes-people-make-when-warming-up/",
+    "imageLicense": "Unlicense / public domain; Free Exercise DB",
+    "muscles": [
+      "Кардио"
+    ],
+    "imageSource": "https://github.com/yuhonas/free-exercise-db/blob/main/LICENSE.md"
+  },
+  "Другое": {
+    "group": "Кардио",
+    "photo": null,
+    "station": "Другая активность",
+    "recognize": "Используй для активности, которой нет в списке.",
+    "setup": "Запиши только известные показатели.",
+    "movement": "Выбирай знакомую технику конкретной активности.",
+    "avoid": "Без выбранного типа расход по MET не оценивается; можно указать фактические ккал.",
+    "primary": "Зависят от активности",
+    "secondary": "Зависят от активности",
+    "equipment": "Другое",
+    "family": "cardio",
+    "reference": "https://pacompendium.com/",
+    "imageLicense": "Unlicense / public domain; источник Free Exercise DB",
+    "visualSource": "Compendium of Physical Activities",
+    "linkOnly": true,
+    "muscles": [
+      "Кардио"
+    ]
   }
 }
