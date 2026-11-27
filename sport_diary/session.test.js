@@ -18,7 +18,7 @@ test("Старт, изменение числа подходов, отмена �
  ctx.exerciseCatalog=require("./web/catalog.json");
  ctx.foodWords=require("./web/food-words.json");
  ctx.exercisePhotoBase="photos/";
- for(const f of ["logic.js","foods.js","portions.js","goals.js","health.js","reports.js","goals-view.js","health-view.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
+ for(const f of ["logic.js","visibility.js","foods.js","portions.js","goals.js","health.js","reports.js","goals-view.js","health-view.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
  const run=s=>vm.runInContext(s,ctx);
  await run("load()");
  run('selectDay("2026-01-01")');

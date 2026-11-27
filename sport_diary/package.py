@@ -13,7 +13,7 @@ INSTALL_FILES = (
     "server.py", "photos.py", "measurements.py", "food_catalog.py", "nutrition.py", "health_sensors.py",
     "translations/en.yaml", "translations/ru.yaml",
     "web/index.html", "web/assistant.html", "web/style.css", "web/health.css",
-    "web/catalog.json", "web/food-words.json", "web/app.js", "web/assistant.js", "web/logic.js",
+    "web/catalog.json", "web/food-words.json", "web/app.js", "web/assistant.js", "web/logic.js", "web/visibility.js",
     "web/foods.js", "web/portions.js", "web/nutrition-summary.js", "web/report-view.js", "web/reports.js",
     "web/goals.js", "web/goals-view.js", "web/health.js", "web/health-view.js",
 )

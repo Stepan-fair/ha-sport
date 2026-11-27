@@ -642,7 +642,7 @@ function summary(w,pending=false){
  const missed=w.exercises.some(e=>e.sets.some(t=>!t.done)||e.sets.filter(t=>t.done&&!t.warmup).length<(e.plannedSets||0));
  const energy=t.estimated!=null?(kg?'≈ ':'')+t.estimated+' ккал за занятие':t.consoleCount?t.consoleKcal+' ккал по консоли · общий расход неизвестен':kg?'Для этой активности введи фактические ккал с консоли, чтобы учесть расход.':'Для оценки калорий нужен вес на начало занятия.';
  const linked=SportHealth.linkedWorkout(state,w);
- const watch=linked?reportMetrics([["Активные ккал часов",linked.activeKcal==null?"—":numberRu(linked.activeKcal)+" ккал"],
+ const watch=linked&&SportVisibility.section(state,"watch")?reportMetrics([["Активные ккал часов",linked.activeKcal==null?"—":numberRu(linked.activeKcal)+" ккал"],
    ["Полные ккал часов",linked.totalKcal==null?"—":numberRu(linked.totalKcal)+" ккал"],
    ["Средний пульс",linked.avgPulse==null?"—":numberRu(linked.avgPulse)+" уд/мин"]]):"";
  const energyNote=t.estimated==null?"":'<p class="muted">Показана оценка полного расхода за занятие. В суточном отчёте выбранный источник указан рядом с расходом.</p>';
@@ -1013,7 +1013,7 @@ async function action(a,historyIndex){
    await saveForm(a,s=>SportGoals.setProtein(s,selectedDay,val("protein-mode"),Number(val("protein-goal")),$("regular-strength").checked));render();return;
  }
  if(a==="save-creatine-goal"){
-   await saveForm(a,s=>SportGoals.setCreatine(s,selectedDay,$("creatine-plan").checked,Number(val("creatine-goal")),Number(val("creatine-size"))));render();return;
+   await saveForm(a,s=>{if(!SportVisibility.supplement(s,"Креатин"))throw Error("Креатин отключён в настройках профиля.");return SportGoals.setCreatine(s,selectedDay,$("creatine-plan").checked,Number(val("creatine-goal")),Number(val("creatine-size")))});render();return;
  }
  if(a.startsWith("approve-proposal-")||a.startsWith("reject-proposal-")){
    const approve=a.startsWith("approve-proposal-"),id=a.slice(approve?17:16);

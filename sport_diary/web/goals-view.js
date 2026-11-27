@@ -2,6 +2,8 @@
 
 const SportGoalsView = (() => {
   const model=typeof module==="undefined"?SportGoals:require("./goals");
+  const visibility=typeof module==="undefined"?SportVisibility:require("./visibility");
+  const enabled=(state,name)=>!state||visibility.supplement(state,name);
   const num=new Intl.NumberFormat("ru-RU",{maximumFractionDigits:1});
   const fmt=n=>num.format(n);
   const html=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -21,12 +23,12 @@ const SportGoalsView = (() => {
       '<p>Автоориентир для здоровых взрослых с силовыми занятиями — 1,6 г/кг в сутки, включая дни отдыха. Для общей формы, выносливости и снижения веса подтверди характер занятий. При беременности или медицинских ограничениях выбери учёт факта или личную согласованную цель.</p>'+
       '<p>Справочный диапазон для тренирующихся взрослых — 1,4–2,0 г/кг. <a href="https://pubmed.ncbi.nlm.nih.gov/28642676/" target="_blank" rel="noopener noreferrer">Позиция ISSN</a></p></div>'+
       '<button class="primary" data-action="save-protein-goal">Сохранить цель белка</button>'+history(state.proteinGoals,r=>r.mode==="manual"?fmt(r.grams)+" г/сут":modes[r.mode]))+
-      article("Личный план креатина",since+'<label class="check"><input id="creatine-plan" type="checkbox"'+checked(c.enabled)+'>Включить ежедневный план</label>'+
+      (enabled(state,"Креатин")?article("Личный план креатина",since+'<label class="check"><input id="creatine-plan" type="checkbox"'+checked(c.enabled)+'>Включить ежедневный план</label>'+
       '<div id="creatine-target">'+grams("creatine-goal","Моя цель в сутки, г",c.grams??3)+'</div>'+
       grams("creatine-size","Креатин в одной порции моего продукта, г",c.serving??3)+
       '<p>Размер порции используется для новых отметок. План действует и в дни отдыха.</p>'+
       '<button class="primary" data-action="save-creatine-goal">Сохранить план и размер порции</button>'+
-      history(state.creatineGoals,r=>(r.enabled?fmt(r.grams)+" г/сут":"План выключен")+" · порция "+fmt(r.serving)+" г"));
+      history(state.creatineGoals,r=>(r.enabled?fmt(r.grams)+" г/сут":"План выключен")+" · порция "+fmt(r.serving)+" г")):"");
   }
   function sync() {
     const el=id=>document.getElementById(id);
@@ -40,10 +42,10 @@ const SportGoalsView = (() => {
     if(!count)return missing?"Количество неизвестно":"Нет записей";
     return (missing?"Записано не менее ":"")+fmt(value)+" г";
   }
-  function dayBody(row) {
+  function dayBody(row,state) {
     const p=row.protein,c=row.creatine,powder=row.powder;
     const result=known(p.known,p.count-p.missing,p.missing);
-    const links=p.issues.map(i=>{
+    const links=p.issues.filter(i=>!state||visibility.issue(state,i)).map(i=>{
       const action=i.kind==="meal"?"refine-meal-"+encodeURIComponent(i.id):"refine-dose-"+i.index+"-"+encodeURIComponent(i.label);
       return '<button type="button" data-action="'+html(action)+'">'+html("Уточнить · "+i.label+" "+i.date.slice(11,16))+'</button>';
     }).join("");
@@ -52,24 +54,24 @@ const SportGoalsView = (() => {
     const dose=c.actual!=null?fmt(c.actual)+" г":known(c.known,c.knownCount,c.missing);
     return '<p><b>Белок из еды и добавок</b> · '+result+(p.target!=null?' / '+fmt(p.target)+' г':' · '+(p.mode==="auto"?'недостаточно данных для ориентира':'только факт'))+'</p>'+
       (p.target!=null&&p.count>p.missing?'<p>До ориентира по внесённым данным · '+fmt(Math.max(0,p.target-p.known))+' г</p>':"")+how+links+
-      (powder.knownCount||powder.missing?'<details><summary>Вклад протеиновой добавки</summary><p>'+known(powder.known,powder.knownCount,powder.missing)+'</p></details>':"")+
-      '<p><b>Креатин</b> · '+dose+(c.target==null?' · план выключен':' / '+fmt(c.target)+' г')+'</p>';
+      (enabled(state,"Протеин")&&(powder.knownCount||powder.missing)?'<details><summary>Вклад протеиновой добавки</summary><p>'+known(powder.known,powder.knownCount,powder.missing)+'</p></details>':"")+
+      (enabled(state,"Креатин")?'<p><b>Креатин</b> · '+dose+(c.target==null?' · план выключен':' / '+fmt(c.target)+' г')+'</p>':"");
   }
-  function today(data) {
-    return data?.rows.length?article("Питание и личные цели",dayBody(data.rows.at(-1))):"";
+  function today(data,state) {
+    return data?.rows.length?article("Питание и личные цели",dayBody(data.rows.at(-1),state)):"";
   }
-  function report(data) {
+  function report(data,period,state) {
     if(!data?.rows.length)return "";
     const p=data.protein,c=data.creatine,f=data.fiber;
     const comparison=metric=>metric.comparedDays?fmt(metric.actual)+' / '+fmt(metric.target)+' г за '+metric.comparedDays+' дн. · выполнение '+metric.percent+'%':'Пока нет сопоставимых дней';
     const groups=data.groups.map(g=>'<p><b>'+html(g.label)+'</b> · '+known(g.known,g.count-g.missing,g.missing)+
-      (g.powder||g.powderUnknown?' · из порошка '+known(g.powder,g.powder>0?1:0,g.powderUnknown):"")+'</p>').join("");
+      (enabled(state,"Протеин")&&(g.powder||g.powderUnknown)?' · из порошка '+known(g.powder,g.powder>0?1:0,g.powderUnknown):"")+'</p>').join("");
     const trend=data.trends.map(t=>'<p>За '+t.days+' дней · '+(t.count?fmt(t.mean)+' кг':'нет замеров')+' · дней с замерами '+t.count+' из '+t.days+'</p>').join("");
-    const details=data.rows.length===1 ? dayBody(data.rows[0]) : '<p>Белок из еды и добавок · '+comparison(p)+'</p><p>Дни с внесённой порцией еды · '+p.recordedDays+' из '+data.rows.length+' · дней с ориентиром '+p.planDays+'</p>'+
-      '<p>Креатин · '+comparison(c)+'</p><p>План креатина действовал '+c.planDays+' дн. Закрытые дни без отметки учтены как 0 г.</p>'+
+    const details=data.rows.length===1 ? dayBody(data.rows[0],state) : '<p>Белок из еды и добавок · '+comparison(p)+'</p><p>Дни с внесённой порцией еды · '+p.recordedDays+' из '+data.rows.length+' · дней с ориентиром '+p.planDays+'</p>'+
+      (enabled(state,"Креатин")?'<p>Креатин · '+comparison(c)+'</p><p>План креатина действовал '+c.planDays+' дн. Закрытые дни без отметки учтены как 0 г.</p>':"")+
       '<p>Процент рассчитан по дням с известным количеством и действующей целью. Превышение дневной цели учитывается в граммах. В выполнении за сутки доступно до 100%.</p>'+
-      '<details><summary>Цели и записи по датам</summary>'+data.rows.filter(r=>r.protein.count||r.protein.target!=null||r.creatine.target!=null||r.creatine.knownCount||r.creatine.missing)
-        .map(r=>'<details><summary>'+html(date(r.day))+'</summary>'+dayBody(r)+'</details>').join("")+'</details>';
+      '<details><summary>Цели и записи по датам</summary>'+data.rows.filter(r=>r.protein.count||r.protein.target!=null||enabled(state,"Креатин")&&(r.creatine.target!=null||r.creatine.knownCount||r.creatine.missing))
+        .map(r=>'<details><summary>'+html(date(r.day))+'</summary>'+dayBody(r,state)+'</details>').join("")+'</details>';
     return article("Цели питания",details)+
       (groups?article("Белок по приёмам пищи",groups):"")+
       (f.count?article("Клетчатка",'<p>'+known(f.known,f.knownCount,f.count-f.knownCount)+'</p><p>Сведения о клетчатке · '+f.knownCount+' из '+f.count+' порций.</p>'+

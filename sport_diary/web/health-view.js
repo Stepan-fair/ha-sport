@@ -1,5 +1,6 @@
 "use strict";
 const SportHealthView=(()=>{
+  const visibility=typeof module==="undefined"?SportVisibility:require("./visibility");
   const metrics={
     steps:["Шаги","шагов","sensor.iphone_steps"],
     distance:["Дистанция ходьбы и бега","км","sensor.iphone_distance"],
@@ -99,24 +100,24 @@ const SportHealthView=(()=>{
         actions(button("sleep","Исправить",row.id),row.manual&&row.imported?button("undo-sleep","Отменить правку",row.id):"",button("delete-sleep","Удалить",row.id)));
     }).join("");
     return section("sleep","Сон",duration(d.sleepMinutes),rows+hiddenRows(c,"sleep")+actions(button("sleep","Записать сон"),button("import-sleep","Импортировать сон из JSON"))+
-      '<div data-health-pending="sleep">'+pendingButton(snapshots.get(c.profile.id),"sleep")+'</div>'+
+      '<div data-health-pending="sleep">'+pendingButton(snapshots.get(c.profile.id),"sleep",c.state)+'</div>'+
       muted("Основной сон относится к дате пробуждения. Для дневного сна можно добавить отдельную запись."));
   }
   function activityPanel(c,d){
     const hidden=c.state.health?.daily?.[c.day]||{};
-    const rows=Object.entries(metrics).map(([key,[label,unit]])=>{
+    const rows=Object.entries(metrics).filter(([key])=>visibility.dailyMetric(c.state,key)).map(([key,[label,unit]])=>{
       const r=d.daily[key];
       if(!r&&!hidden[key]?.hidden)return "";
       if(!r)return listRow(label,"Показание скрыто",button("undo-daily","Восстановить",key));
       const desc=[sourceLabel(r),r.complete?"полные сутки":"полнота суток не подтверждена",r.receivedAt?"получено "+new Date(r.receivedAt).toLocaleString("ru-RU",{timeZone:c.zone}):""].filter(Boolean).join(" · ");
       return listRow(label+" · "+number(r.value)+" "+unit,desc,actions(button("daily","Исправить",key),button("delete-daily",r.manual?"Снять ручную запись":"Скрыть показание",key)));
     }).join("");
-    return section("activity","Суточная активность",Object.keys(d.daily).length?"Показателей за день · "+Object.keys(d.daily).length:"Нет наблюдений",rows+actions(button("daily","Внести показатель"))+
-      '<div data-health-pending="activity">'+pendingButton(snapshots.get(c.profile.id),"activity")+'</div>'+
+    return section("activity","Суточная активность",Object.keys(d.daily).filter(k=>visibility.dailyMetric(c.state,k)).length?"Показателей за день · "+Object.keys(d.daily).filter(k=>visibility.dailyMetric(c.state,k)).length:"Нет наблюдений",rows+actions(button("daily","Внести показатель"))+
+      '<div data-health-pending="activity">'+pendingButton(snapshots.get(c.profile.id),"activity",c.state)+'</div>'+
       muted("При отсутствии сигнала сохраняется последнее измерение на его исходной дате."));
   }
-  function pendingButton(s,key){
-    const n=s?.candidates?.filter(r=>(r.metric==="sleep")===(key==="sleep")).length;
+  function pendingButton(s,key,state){
+    const n=s?.candidates?.filter(r=>(r.metric==="sleep")===(key==="sleep")&&(r.metric==="sleep"?visibility.section(state,"sleep"):visibility.dailyMetric(state,r.metric))).length;
     return n&&s.canManage?button("sensors","Уточнить дату показаний HA · "+n):"";
   }
   function workoutPanel(c,d){
@@ -147,17 +148,18 @@ const SportHealthView=(()=>{
   }
   function settingsPanel(c){
     const s=c.state.health?.settings||{};
-    return section("health-settings","Сон и источники данных",c.profile.name||"",
-      listRow("Личные ориентиры","Сон · "+duration(s.sleepGoalMinutes??420)+"; пауза после еды · "+duration(s.pauseGoalMinutes??120),button("settings","Настроить ориентиры и баллы"))+
+    return section("health-settings","Разделы и внешние данные",c.profile.name||"",
+      listRow("Что показывать","Выбери нужные разделы и показатели",button("visibility","Настроить видимость"))+
+      (visibility.section(c.state,"sleep")||visibility.section(c.state,"mealTiming")?listRow("Личные ориентиры","Настройки включённых разделов",button("settings","Настроить ориентиры и баллы")):"")+
       listRow("Датчики Home Assistant","Отдельное подключение каждого показателя профиля",button("sensors","Открыть датчики")));
   }
   function panels(c){
     if(!allowed(c))return "";
     if(c.tab===3)return c.settingsOpen?settingsPanel(c):"";
-    if(c.tab===2)return mealPanel(c);
+    if(c.tab===2)return visibility.section(c.state,"mealTiming")?mealPanel(c):"";
     if(c.tab!==0&&c.tab!==1)return "";
     const d=healthDay(c);
-    return c.tab===0?sleepPanel(c,d)+activityPanel(c,d):workoutPanel(c,d);
+    return c.tab===0?(visibility.section(c.state,"sleep")?sleepPanel(c,d):"")+(visibility.section(c.state,"activity")?activityPanel(c,d):""):(visibility.section(c.state,"watch")?workoutPanel(c,d):"");
   }
   const getSleep=(c,id)=>healthDay(c).episodes.find(row=>row.id===id);
   const getWorkout=(c,id)=>healthDay(c).workouts.find(row=>row.id===id);
@@ -193,7 +195,7 @@ const SportHealthView=(()=>{
       select("wakeMethod","Бодрствование",{total:"Суммарные минуты",intervals:"Отдельные интервалы"},r.awakeIntervals?.length?"intervals":"total")+
       '<div data-wake="total">'+numeric("awakeMinutes","Минут бодрствования",r.awakeMinutes,'step="any"')+'</div>'+
       '<div data-wake="intervals"><div data-awake-list>'+((r.awakeIntervals||[]).map((seg,i)=>awakenRow(i,seg)).join(""))+'</div><button type="button" data-add-awake>Добавить пробуждение</button></div>'+
-      '<div data-main-meal>'+check("mealsComplete","Все существенные приёмы и перекусы до этого сна внесены",r.mealsComplete)+'</div></fieldset>'+
+      '<div data-main-meal'+(visibility.section(c.state,"mealTiming")?'':' hidden')+'>'+(visibility.section(c.state,"mealTiming")?check("mealsComplete","Все существенные приёмы и перекусы до этого сна внесены",r.mealsComplete):'')+'</div></fieldset>'+
       numeric("inBedMinutes","Минут в постели, если известно",r.inBedMinutes,'step="any"')+
       field("source","Источник или устройство","text",r.source==="manual"?"":r.source,'maxlength="120" placeholder="Вручную"');
     return {title:id?"Исправить сон":"Записать сон",body,setup(form){
@@ -202,7 +204,7 @@ const SportHealthView=(()=>{
         const mode=form.elements.method.value, wake=form.elements.wakeMethod.value;
         for(const el of form.querySelectorAll("[data-mode]")){el.disabled=el.hidden=el.dataset.mode!==mode}
         for(const el of form.querySelectorAll("[data-wake]"))el.hidden=el.dataset.wake!==wake;
-        form.querySelector("[data-main-meal]").hidden=form.elements.kind.value!=="main";
+        form.querySelector("[data-main-meal]").hidden=form.elements.kind.value!=="main"||!visibility.section(c.state,"mealTiming");
       }
       form.addEventListener("change",toggle);
       form.addEventListener("click",ev=>{
@@ -231,7 +233,7 @@ const SportHealthView=(()=>{
           }
           if(!row.awakeIntervals.length)throw Error("Добавь период бодрствования или выбери суммарные минуты.");
         }else row.awakeMinutes=optionalNumber(data,"awakeMinutes");
-        row.mealsComplete=row.kind==="main"&&data.has("mealsComplete");
+        row.mealsComplete=visibility.section(s,"mealTiming")?row.kind==="main"&&data.has("mealsComplete"):r.mealsComplete;
       }
       const saved=m.saveSleep(s,row);
       return "Сон сохранён за "+dayLabel(saved.date)+".";
@@ -239,7 +241,7 @@ const SportHealthView=(()=>{
   }
   function dailyEditor(c,key){
     const old=key?getDaily(c,key):null;
-    const body=select("metric","Показатель",Object.fromEntries(Object.entries(metrics).map(([k,[label,unit]])=>[k,label+" · "+unit])),key||"steps")+
+    const body=select("metric","Показатель",Object.fromEntries(Object.entries(metrics).filter(([k])=>visibility.dailyMetric(c.state,k)).map(([k,[label,unit]])=>[k,label+" · "+unit])),key||Object.keys(metrics).find(k=>visibility.dailyMetric(c.state,k)))+
       dateField("date","Дата измерения",c.day)+numeric("value","Измеренное значение",old?.value,'step="any" required')+
       field("source","Источник или устройство","text",old?.source==="manual"?"":old?.source,'maxlength="120" placeholder="Вручную"')+
       check("complete","Подтверждаю покрытие полных суток",old?.complete)+muted("Для расхода нужны энергия покоя и активная энергия за полные сутки от одного источника. Назови его одинаково в обеих записях.");
@@ -317,20 +319,23 @@ const SportHealthView=(()=>{
       return select("source_"+key,sensors[key][0],opts,current||"");
     };
     const sleepRows=[...(c.state.healthImported?.sleep||[]),...(c.state.health?.sleepImports||[]),...(c.state.health?.sleep||[])];
-    const preferences=pref("sleep",s.sleepSource,sleepRows)+Object.keys(metrics).map(k=>pref(k,s.dailySources?.[k],(c.state.healthImported?.daily||[]).filter(r=>r.metric===k))).join("");
+    const showSleep=visibility.section(c.state,"sleep"),showMeals=visibility.section(c.state,"mealTiming");
+    const preferences=(showSleep?pref("sleep",s.sleepSource,sleepRows):"")+Object.keys(metrics).filter(k=>visibility.dailyMetric(c.state,k)).map(k=>pref(k,s.dailySources?.[k],(c.state.healthImported?.daily||[]).filter(r=>r.metric===k))).join("");
     const ageHint=age!=null&&age!==""?"Справочный ориентир для этого возраста · "+m.sleepReference(age):"Укажи возраст или дату рождения в профиле для справочного ориентира.";
     return {title:"Сон и вечерний режим",body:
-      '<fieldset><legend>Длительность сна</legend>'+check("sleepBonus","Начислять 2 балла за личную цель сна",s.sleepBonus)+
+      (showSleep?'<fieldset><legend>Длительность сна</legend>'+check("sleepBonus","Начислять 2 балла за личную цель сна",s.sleepBonus)+
       numeric("sleepGoalMinutes","Личная цель, мин",s.sleepGoalMinutes??420,'min="1" max="1440" step="1" required')+
-      muted(ageHint)+'<a href="https://www.cdc.gov/sleep/about/" target="_blank" rel="noopener noreferrer">Ориентиры сна по возрасту · CDC</a></fieldset>'+
-      '<fieldset><legend>Вечерний режим</legend>'+check("mealBonus","Начислять 1 балл за паузу после еды",s.mealBonus)+
+      muted(ageHint)+'<a href="https://www.cdc.gov/sleep/about/" target="_blank" rel="noopener noreferrer">Ориентиры сна по возрасту · CDC</a></fieldset>':"")+
+      (showMeals?'<fieldset><legend>Вечерний режим</legend>'+check("mealBonus","Начислять 1 балл за паузу после еды",s.mealBonus)+
       numeric("pauseGoalMinutes","Личная пауза, мин",s.pauseGoalMinutes??120,'min="1" max="1440" step="1" required')+
-      muted("Отметь в «Питании» тип и окончание еды. В записи основного сна подтверди полноту дневника за предыдущее бодрствование.")+'</fieldset>'+
+      muted("Отметь в «Питании» тип и окончание еды. В записи основного сна подтверди полноту дневника за предыдущее бодрствование.")+'</fieldset>':"")+
       (preferences?'<fieldset><legend>Предпочтительные источники</legend>'+preferences+'</fieldset>':""),
       save:guardedChange(c,ctx=>ctx.state.health?.settings,(state,data)=>{
         const settings=m.ensure(state).settings;
-        settings.sleepBonus=data.has("sleepBonus");settings.mealBonus=data.has("mealBonus");
+        if(visibility.section(state,"sleep")&&data.has("sleepGoalMinutes"))settings.sleepBonus=data.has("sleepBonus");
+        if(visibility.section(state,"mealTiming")&&data.has("pauseGoalMinutes"))settings.mealBonus=data.has("mealBonus");
         for(const k of ["sleepGoalMinutes","pauseGoalMinutes"]){
+          if(!data.has(k)||!visibility.section(state,k==="sleepGoalMinutes"?"sleep":"mealTiming"))continue;
           const n=optionalNumber(data,k);if(!Number.isInteger(n)||n<1||n>1440)throw Error("Укажи цель от 1 до 1440 минут.");
           settings[k]=n;
         }
@@ -375,9 +380,25 @@ const SportHealthView=(()=>{
     const info=[target,dayLabel(c.day),r.start?timeLabel(r.start):"",r.value!=null?number(r.value)+" "+metrics[key]?.[1]:""].filter(Boolean).join(" · ");
     return {title,body:muted(info),submit,save:guardedChange(c,ctx=>read(ctx,key),(s)=>{change(s);return "Дневник обновлён."})};
   }
+  function visibilityEditor(c){
+    const current=visibility.config(c.state);
+    const body=muted("Скрытые разделы можно включить обратно. Исторические записи и их вклад в общие итоги сохраняются. Настройка действует с выбранной даты.")+
+      Object.entries(visibility.sections).map(([key,label])=>check("visible_"+key,label,current[key])).join("")+
+      '<details><summary>Показатели суточной активности</summary>'+Object.entries(visibility.metrics).map(([key,label])=>check("metric_"+key,label,current.dailyMetrics[key])).join("")+'</details>';
+    return {title:"Разделы профиля",body,save:guardedChange(c,ctx=>ctx.state.profile?.visibility,(state,data)=>{
+      const next=Object.fromEntries(Object.keys(visibility.sections).map(k=>[k,data.has("visible_"+k)]));
+      next.dailyMetrics=Object.fromEntries(Object.keys(visibility.metrics).map(k=>[k,data.has("metric_"+k)]));
+      visibility.save(state,c.day,next);return "Видимость разделов сохранена.";
+    })};
+  }
   function editor(c,action,key){
+    visibility.assertAction(c.state,action,key);
+    if(action==="visibility")return visibilityEditor(c);
     const factories={sleep:sleepEditor,daily:dailyEditor,workout:workoutEditor,link:linkEditor,meal:mealEditor,settings:settingsEditor,import:ctx=>importEditor(ctx),"import-sleep":ctx=>importEditor(ctx,true)};
-    return Object.hasOwn(factories,action)?factories[action](c,key):management(c,action,key);
+    const spec=Object.hasOwn(factories,action)?factories[action](c,key):management(c,action,key);
+    if(!spec)return spec;
+    const save=spec.save;
+    return {...spec,save(state,data,...args){visibility.assertAction(state,action,key||(action==="daily"?data?.get("metric"):null));return save(state,data,...args)}};
   }
   const sensorStatus={ok:"Есть показание",unavailable:"Источник недоступен",invalid:"Проверь значение и единицу",needs_date:"Для показания нужна дата"};
   function sensorContents(s){
@@ -427,7 +448,7 @@ const SportHealthView=(()=>{
         const s=await request;
         if(!sameScope(c)||!Array.isArray(s?.candidates))return;
         snapshots.set(id,s);
-        for(const slot of doc.querySelectorAll("[data-health-pending]"))slot.innerHTML=pendingButton(s,slot.dataset.healthPending);
+        for(const slot of doc.querySelectorAll("[data-health-pending]"))slot.innerHTML=pendingButton(s,slot.dataset.healthPending,context().state);
       }catch{/* A missing sensor connection leaves the manual forms available. */}
       finally{if(pendingRequests.get(id)===request)pendingRequests.delete(id)}
     },true);
@@ -460,6 +481,14 @@ const SportHealthView=(()=>{
       ui.footer.innerHTML='<button type="submit" class="primary">'+h(spec.submit||"Сохранить")+'</button>'+cancelButton;
       ui.form.querySelector("[data-close]").onclick=()=>ui.dlg.close();
       spec.setup?.(ui.form);
+      if(!spec.submit){
+        const submit=ui.footer.querySelector('button[type="submit"]');
+        const values=()=>JSON.stringify(Array.from(ui.form.querySelectorAll("input,select,textarea"),el=>[el.name,el.type==="checkbox"?el.checked:el.value]));
+        const initial=values();
+        const update=()=>{submit.hidden=values()===initial};
+        submit.hidden=true;
+        for(const event of ["input","change","click"])ui.form.addEventListener(event,update);
+      }
       ui.form.onsubmit=e=>{
         e.preventDefault();
         run(c,ui,async()=>{

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 from threading import Thread
@@ -16,7 +17,8 @@ from test_sport import Sport
 import server
 
 ROOT = Path(__file__).resolve().parent
-EDGE = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft/Edge/Application/msedge.exe"
+EDGE = Path(os.environ.get("SPORT_BROWSER") or shutil.which("chromium") or shutil.which("google-chrome") or
+            str(Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Microsoft/Edge/Application/msedge.exe"))
 
 
 def catalogue(query):
@@ -86,7 +88,8 @@ def check(width, height, pointer, limited=False):
             document["html"] = ('<meta charset="utf-8"><output id="out"></output>'
                                 f'<iframe style="border:0;width:{width}px;height:{height}px" srcdoc="'
                                 + html.escape(frame, quote=True) + '"></iframe>')
-            proc = subprocess.run([str(EDGE), "--headless", "--disable-gpu", "--no-first-run",
+            flags = ["--no-sandbox"] if os.name != "nt" else []  # Isolated test profile in a Linux container.
+            proc = subprocess.run([str(EDGE), *flags, "--headless", "--disable-gpu", "--no-first-run",
                                    "--user-data-dir=" + profile, "--virtual-time-budget=20000", "--dump-dom", url],
                                   capture_output=True, input=b"", timeout=45)
             if proc.returncode or not proc.stdout.strip():
