@@ -1028,7 +1028,8 @@ function mealList(day){
    if(daily.missing[i]>0&&daily.count>daily.missing[i])return numberRu(daily.known[i])+' '+unit+' (по известным значениям)';
    return (Number.isFinite(daily.totals[i])?numberRu(daily.totals[i]):'—')+' '+unit;
  });
- return macros.join("")+supplements.join("")+'<p><strong>Итого за день</strong> · '+totals.join(" · ")+'</p>';
+ const hiddenFacts=state.meals.some(x=>x.date.startsWith(day)&&!SportVisibility.food(state,x))||daily.supplements.some(x=>!SportVisibility.supplement(state,x.name));
+ return macros.join("")+supplements.join("")+'<p><strong>Итого за день</strong> · '+totals.join(" · ")+'</p>'+(hiddenFacts?'<p class="muted">В итогах сохранены факты скрытых разделов. Для просмотра и исправления включи нужный раздел в настройках.</p>':"");
 }
 document.addEventListener("change",async ev=>{
  if(ev.target.id!=="scan"||!ev.target.files.length)return;
