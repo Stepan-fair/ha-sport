@@ -18,7 +18,7 @@ test("Старт, изменение числа подходов, отмена �
  ctx.exerciseCatalog=require("./web/catalog.json");
  ctx.foodWords=require("./web/food-words.json");
  ctx.exercisePhotoBase="photos/";
- for(const f of ["logic.js","visibility.js","foods.js","portions.js","goals.js","health.js","reports.js","goals-view.js","health-view.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
+ for(const f of ["logic.js","visibility.js","foods.js","portions.js","supplement-products.js","supplement-view.js","goals.js","health.js","reports.js","goals-view.js","health-view.js","report-view.js","app.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",f),"utf8"),ctx);
  const run=s=>vm.runInContext(s,ctx);
  await run("load()");
  run('selectDay("2026-01-01")');
@@ -134,9 +134,10 @@ test("Старт, изменение числа подходов, отмена �
  assert.equal(recorded.exercises.length,initialCount);assert.deepEqual(recorded.cardio,[]);
  assert.equal(entries.get("profile/person1").rev,8);
  const newSachet=run('doseFields("Протеин",{},selectedDay,false)');
- assert.match(newSachet,/name="powderPerServing"[^>]*value="30"/);
+ assert.match(newSachet,/data-recipe-field="powderGrams"[^>]*value="30"/);
+ assert.match(newSachet,/300 мл/);
  assert.match(run('doseFields("Протеин",{},selectedDay,true)'),/name="powderPerServing"[^>]*value=""/);
- assert.match(run('doseFields("Протеин",{powderPerServing:""},selectedDay,false)'),/name="powderPerServing"[^>]*value=""/);
+ assert.match(run('doseFields("Протеин",{powderPerServing:""},selectedDay,false)'),/289,52 ккал/);
  const corrected=run('doseSnapshot("Протеин",{servings:"2",powderPerServing:"",mealId:""},{perServing:[100,20,1,2]})');
  assert.deepEqual(Array.from(corrected.perServing),[100,20,1,2]);
  assert.equal(corrected.powderPerServing,undefined);
@@ -145,7 +146,7 @@ test("Старт, изменение числа подходов, отмена �
  ctx.Date=class extends Date {constructor(...args){super(...(args.length?args:[wall]))}};
  ctx.window={addEventListener(){},clearTimeout(){},setTimeout(fn,ms){tick=fn;delay=ms;return 1}};
  ctx.document.querySelector=selector=>selector==="dialog[open]"?null:node(selector);
- run('tab=0;selectDay("2026-11-26");render();watchCalendarDay()');
+ run('state.profile.supps=["Протеин"];tab=0;selectDay("2026-11-26");render();watchCalendarDay()');
  assert.match(node("content").innerHTML,/id="doseStatus">Пока нет отметки/);
  assert.equal(delay,200);wall+=200;tick();
  assert.match(node("content").innerHTML,/id="doseStatus">Не принимал/);

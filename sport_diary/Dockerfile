@@ -11,5 +11,5 @@ COPY server.py measurements.py nutrition.py health_sensors.py ./
 COPY web/index.html web/assistant.html web/style.css web/health.css \
      web/app.js web/assistant.js web/logic.js web/visibility.js web/foods.js web/portions.js \
      web/nutrition-summary.js web/report-view.js web/reports.js \
-     web/goals.js web/goals-view.js web/health.js web/health-view.js ./web/
+     web/supplement-products.js web/supplement-view.js web/goals.js web/goals-view.js web/health.js web/health-view.js ./web/
 CMD ["python","server.py"]

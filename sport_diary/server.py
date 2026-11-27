@@ -290,6 +290,8 @@ def matches_card(data, card):
 def apply_meal_change(data, target, updated):
     nutrition.move_meal_links(data, target, updated)
     data["meals"][data["meals"].index(target)] = updated
+    if any(row.get("mealId") == updated.get("id") and row.get("productSnapshot") for row in data.get("supps", [])):
+        data["supps"] = nutrition.daily_calculation("syncSupplementMeal", {"state": data, "meal": updated})
 
 
 def proposal_deltas(data, target, updated):
@@ -462,6 +464,11 @@ class Handler(BaseHTTPRequestHandler):
                 if item.get("id") == ident:
                     return self.reply(200, nutrition.public_meal(item, i))
             return self.reply(404, {})
+        if len(parts) == 3 and parts[1] == "protein-recipe":
+            day = parts[2]
+            if not nutrition.valid_day(day):
+                return self.reply(400, {})
+            return self.reply(200, nutrition.daily_calculation("proteinRecipe", {"state": state, "day": day}))
         if len(parts) == 3 and parts[1] == "protein-doses":
             day = parts[2]
             if not nutrition.valid_day(day):
@@ -628,6 +635,7 @@ class Handler(BaseHTTPRequestHandler):
                   "/foods.js": ("foods.js","text/javascript"), "/reports.js": ("reports.js","text/javascript"),
                   "/portions.js": ("portions.js","text/javascript"), "/assistant.js": ("assistant.js","text/javascript"),
                   "/report-view.js": ("report-view.js","text/javascript"),
+                  "/supplement-products.js": ("supplement-products.js","text/javascript"), "/supplement-view.js": ("supplement-view.js","text/javascript"),
                   "/goals.js": ("goals.js","text/javascript"), "/goals-view.js": ("goals-view.js","text/javascript"),
                   "/health.js": ("health.js","text/javascript"), "/health-view.js": ("health-view.js","text/javascript"),
                   "/health.css": ("health.css","text/css")}

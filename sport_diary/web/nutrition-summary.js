@@ -12,6 +12,13 @@ if (process.argv[2] === "portion") {
   }
 } else if (process.argv[2] === "mealTotals") {
   result = input.map(require("./portions.js").mealNutrients);
+} else if (process.argv[2] === "proteinRecipe") {
+  const p=require("./supplement-products.js");
+  const recipe=p.enabled(input.state,"Протеин")?p.recipeFor(input.state,"Протеин",input.day):null;
+  result=recipe?{recipe,oneServing:p.snapshot("Протеин",recipe,1),linkRule:"Read existing meals and protein-dose candidates before recording. Link a complete shake once; do not add milk twice."}:null;
+} else if (process.argv[2] === "syncSupplementMeal") {
+  require("./supplement-products.js").syncFromMeal(input.state,input.meal);
+  result=input.state.supps||[];
 } else if (process.argv[2] === "day") {
   const {diaryReport, nutritionForDay} = require("./reports.js");
   const {state, day, entity, scale} = input;

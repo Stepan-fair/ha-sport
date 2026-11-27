@@ -49,6 +49,9 @@ def protein_names(row):
 
 
 def available_protein_doses(state, day):
+    choices = state.get("profile", {}).get("supps")
+    if isinstance(choices, list) and not protein_names({"names": choices}):
+        return  # A stale assistant form cannot link an intake hidden by current profile settings.
     meal_ids = {meal.get("id") for _, meal in meals_in(state) if isinstance(meal.get("id"), str)}
     for index, row in enumerate(state.get("supps", [])):
         if (not isinstance(row, dict) or not protein_names(row) or

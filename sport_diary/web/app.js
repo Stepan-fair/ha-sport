@@ -257,13 +257,13 @@ function render(){
  updateFinishButton();
 }
 const formSelectors={
- "save-protein-goal":"#protein-mode,#protein-goal,#regular-strength","save-creatine-goal":"#creatine-plan,#creatine-goal,#creatine-size",
+ "save-protein-goal":"#protein-mode,#protein-goal,#regular-strength","save-creatine-goal":"#creatine-plan,#creatine-goal,#creatine-size,#creatine-substance",
  "save-energy":"#energy-mode,#daily-maint,#energy-factor","save-track":"#reward-track",
  profile:"#height,#birth,#sex,#goal,#focus,#minutes,#step,#fixed,#workingSets,#returning,#showSetDone,#warmupActivity,[name=cardio-equipment],[data-load-unit],[name=extra],[name=legday],[name=eq],[data-week],[data-step-name]",
  "save-supps":"[name=uses]",meal:"#meal-form input,#meal-form select",weight:"#kg,#wdate,#original-weight"
 };
 function formKey(action,name=""){
- const day=["meal","weight","save-energy","save-protein-goal","save-creatine-goal"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
+ const day=["meal","weight","save-energy","save-protein-goal","save-creatine-goal","save-supplement-recipe"].includes(action)?selectedDay+(action==="meal"&&editingMeal?"|"+editingMeal:""):"";
  return JSON.stringify([who,day,action,name]);
 }
 function rememberForm(key,patch){
@@ -290,14 +290,14 @@ function trackForm(binding,restore=false){
 function bindSaveButtons(){
  formBindings=[];
  for(const button of document.querySelectorAll("button[data-action]")){
-   const action=button.dataset.action, isNote=action.startsWith("save-note-");
-   if(!isNote&&!Object.hasOwn(formSelectors,action))continue;
-   const controls=isNote?[button.closest("details").querySelector("textarea")]:document.querySelectorAll(formSelectors[action]);
-   const key=formKey(isNote?"note":action,button.dataset.noteKey||"");
+   const action=button.dataset.action, isNote=action.startsWith("save-note-"),isRecipe=action==="save-supplement-recipe";
+   if(!isNote&&!isRecipe&&!Object.hasOwn(formSelectors,action))continue;
+   const controls=isRecipe?button.closest("[data-recipe-settings]").querySelectorAll("input,select"):isNote?[button.closest("details").querySelector("textarea")]:document.querySelectorAll(formSelectors[action]);
+   const key=formKey(isNote?"note":action,button.dataset.noteKey||button.closest("[data-recipe-settings]")?.dataset.recipeSettings||"");
    if(!pendingForms.has(key)){
      try{const data=sessionStorage.getItem("sport:editing:"+key);if(data)pendingForms.set(key,JSON.parse(data))}catch{}
    }
-   const fields=Array.from(controls,el=>({el,id:isNote?"text":(el.id||(el.dataset.loadUnit?"unit:"+el.dataset.loadUnit:"")||el.dataset.stepName||el.name+":"+el.value),base:fieldValue(el)}));
+   const fields=Array.from(controls,el=>({el,id:isNote?"text":(el.id||el.dataset.recipeField||(el.hasAttribute?.("data-recipe-date")?"recipeDate":"")||(el.dataset.loadUnit?"unit:"+el.dataset.loadUnit:"")||el.dataset.stepName||el.name+":"+el.value),base:fieldValue(el)}));
    const binding={key,button,fields};formBindings.push(binding);trackForm(binding,true);
  }
 }
@@ -438,8 +438,14 @@ function exercisePreferences(profile){
  return '<h3>Доступные упражнения</h3><p class="muted">Отметь упражнения, которые можно выполнять в твоём зале. Из них составляется план.</p>'+Array.from(groups,([group,names])=>'<details class="equipmentGroup" data-disclosure="'+esc("equipment:"+group)+'"><summary>'+esc(group)+' <span class="eqCount"></span></summary><div>'+names.map(n=>'<div class="exerciseChoice">'+check(exerciseLabel(n),'name="eq" value="'+esc(n)+'"',profile.equipment.includes(n))+guidePanel(n,true)+'<label>Как записываю вес<select data-load-unit="'+esc(noteKey(n))+'">'+options(loadUnits,profile.loadUnits?.[noteKey(n)]||loadUnits[0])+'</select></label><label>Шаг, кг<input type="number" min="0" max="100" step="any" data-step-name="'+esc(noteKey(n))+'" value="'+esc(profile.exerciseSteps?.[noteKey(n)]??"")+'" placeholder="По профилю"></label></div>').join("")+'</div></details>').join("");
 }
 const bars='<i class="gripBars" aria-hidden="true"></i>';
+function legacyProductCorrection(name,day){
+ if(!SportSupplementProducts.supported(name))return "";
+ const fields=SportSupplementView.doseFields(state,name,{},day,true).replace(/name="(servings|drops|mealId|linkMode)"/g,'name="updated-$1"');
+ return '<details><summary>Явно уточнить продукт и состав старой отметки</summary><p>Исходная отметка не подтверждает этот состав. Проверь предварительный расчёт; применение заменит только выбранную отметку и создаст связанную порцию для протеина.</p><label class="check"><input type="checkbox" name="applyProduct">Применить уточнённый продукт к этой отметке</label>'+fields+'</details>';
+}
 function doseFields(name,entry,day,editing){
- if(!["Протеин","Креатин"].includes(name))return "";
+ if(SportSupplementProducts.supported(name)&&(!editing||entry.productSnapshot))return SportSupplementView.doseFields(state,name,entry,day,editing);
+ if(!["Протеин","Креатин"].includes(name))return editing?legacyProductCorrection(name,day):"";
  const protein=name==="Протеин",pastUnknown=editing&&entry.servings==null;
  const servings=entry.servings??(editing?"":1);
  const separate=editing&&state.supps.filter(row=>row.date.slice(0,10)===day&&row.names.some(n=>canonicalSupp(n)===name)).length>1;
@@ -458,10 +464,11 @@ function doseFields(name,entry,day,editing){
  }
  const tip=separate?"В этот день есть другие отметки. Каждая входит в итог отдельно.":"Если принимал ещё раз, укажи общее количество за день.";
  const content='<div data-dose-controls="'+esc(name)+'">'+quantity+'<small>'+tip+'</small>'+details+'</div>';
- if(editing)return content;
+ if(editing)return content+legacyProductCorrection(name,day);
  return '<details class="doseQuantity" data-disclosure="'+esc("quantity:"+name)+'"><summary>'+ (protein?"Первый Русский Протеин · 22 г белка в саше":"Креатин · "+numberRu(creatineSize)+" г в порции")+' · количество</summary>'+content+'</details>';
 }
 function doseAmounts(controls){
+ if(controls.hasAttribute("data-product-dose"))return SportSupplementView.values(controls);
  const read=name=>controls.querySelector('[name="'+name+'"]')?.value||"";
  return {servings:read("servings"),powderPerServing:read("powderPerServing"),mealId:read("mealId"),
    creatinePerServing:read("creatinePerServing"),
@@ -469,6 +476,7 @@ function doseAmounts(controls){
 }
 function doseSnapshot(name,values,previous){
  if(!values)return {};
+ if(values.recipe)return {...values};
  const facts=recordedDose(name,Number(values.servings),values.powderPerServing===""?null:Number(values.powderPerServing),values.mealId);
  if(name==="Протеин"&&Array.isArray(previous?.perServing))facts.perServing=[...previous.perServing];
  if(name==="Протеин"&&values.perServing)facts.perServing=SportPortions.nutrients(values.perServing);
@@ -476,18 +484,24 @@ function doseSnapshot(name,values,previous){
  return facts;
 }
 document.addEventListener("input",event=>{
+ SportSupplementView.changed(event.target);
  const controls=event.target.closest?.("[data-dose-controls]");
  if(!controls)return;
- if(!controls.closest("dialog"))draftDoseAmounts.set(who+"|"+controls.dataset.doseControls,doseAmounts(controls));
+ if(!controls.closest("dialog"))try{draftDoseAmounts.set(who+"|"+controls.dataset.doseControls,doseAmounts(controls))}catch{/* Preserve incomplete input in the open form until it validates. */}
 });
+document.addEventListener("change",event=>{try{
+ SportSupplementView.convertBasis(event.target);SportSupplementView.changed(event.target);
+ const binding=formBindings.find(b=>b.fields.some(f=>f.el===event.target));if(binding)trackForm(binding);
+ const controls=event.target.closest?.("[data-product-dose]");
+ if(controls&&!controls.closest("dialog"))try{draftDoseAmounts.set(who+"|"+controls.dataset.doseControls,doseAmounts(controls))}catch{}
+}catch(e){note(e.message)}});
 function planPanel(day){
  const slot=trainingSlot(state,draft,day);
  const logged=state.workouts.some(w=>w.date.startsWith(day))||draft?.date.startsWith(day);
  const loggedByName=new Map(state.supps.filter(x=>x.date.slice(0,10)===day).flatMap(x=>x.names.map(n=>[canonicalSupp(n),x])));
  const moves=state.suppMoves?.[day]||{};
  const snapshot=state.suppPlans?.[day],unknownPlan=loggedByName.size&&!Array.isArray(snapshot);
- const names=[...new Set([...(Array.isArray(snapshot)?snapshot:state.profile.supps).map(canonicalSupp),...loggedByName.keys()])];
- if(SportGoals.creatineRule(state,day).enabled&&!names.includes("Креатин"))names.push("Креатин");
+ const names=[...new Set([...SportSupplementProducts.availableOn(state,day),...state.profile.supps.map(canonicalSupp),...loggedByName.keys()])].filter(n=>SportSupplementProducts.enabled(state,n));
  const rows=names.map(name=>{
  const [planned,hint]=schedule(name,slot),entry=loggedByName.get(name),move=moves[name];
  const clock=entry?entry.date.slice(11,16):move?.clock;
@@ -497,8 +511,8 @@ function planPanel(day){
  return '<div class="day-plan"><div><small>План на день</small><h3>'+ (slot==="Отдых"?"День отдыха":"Тренировка · "+slot.toLowerCase())+'</h3></div><label>Планы на зал<select id="daySlot" '+(logged?'disabled title="Время взято из занятия"':"")+'>'+options(["Отдых",...Object.keys(trainingSlots)],slot)+'</select></label></div>'+
  ["Утро","День","Вечер","Ночь","По назначению","По своей схеме"].map(time=>{
  const items=rows.filter(x=>x.section===time);
- if(!items.length&&(!names.length||!periods.includes(time)))return "";
- return '<div class="timegroup" data-slot="'+time+'"><strong>'+time+'</strong><div>'+items.map(x=>'<div class="dose"><button class="handle grip" type="button" data-move="'+esc(x.name)+'" aria-label="Перенести '+esc(x.name)+'" title="Перенести">'+bars+'</button>'+check(x.name,'name="supp" value="'+esc(x.name)+'" '+(x.taken?'disabled':''),x.taken||pendingDoses.has(x.name))+'<small>'+esc(x.hint)+'</small>'+(!x.taken?doseFields(x.name,draftDoseAmounts.get(who+"|"+x.name)||{},day,false):"")+'</div>').join("")+(items.length?"":'<small>Нет приёмов</small>')+'</div></div>';
+ if(!items.length)return "";
+ return '<div class="timegroup" data-slot="'+time+'"><strong>'+time+'</strong><div>'+items.map(x=>'<div class="dose"><button class="handle grip" type="button" data-move="'+esc(x.name)+'" aria-label="Перенести '+esc(x.name)+'" title="Перенести">'+bars+'</button>'+check(x.name,'name="supp" value="'+esc(x.name)+'"',pendingDoses.has(x.name))+'<small>'+esc(x.hint)+'</small>'+doseFields(x.name,draftDoseAmounts.get(who+"|"+x.name)||{},day,false)+'</div>').join("")+(items.length?"":'<small>Нет приёмов</small>')+'</div></div>';
  }).join('')+(names.length?'':btn("configure","Выбрать мои добавки"));
 }
 function weekStrip(){
@@ -557,15 +571,15 @@ function hero(){
  return '<section class="hero"><div class="orbit" aria-hidden="true"></div><div class="heroMain"><small>'+esc(date)+'</small><h1>'+esc(name)+', твой день</h1><p>'+esc(status)+'</p>'+btn("open",draft?"Продолжить занятие →":"Открыть тренировку →",true)+'</div><div class="heroFoot"><b>'+count+'</b> занятий за 7 дней <span>·</span> <b>'+state.profile.minutes+'</b> мин в плане</div>'+weekStrip()+'</section>';
 }
 function today(){
- return hero()+dailyRecap()+card("Мои добавки",'<div id="planPanel">'+planPanel(selectedDay)+'</div>'+btn("supp","Подтвердить приём",true))+
- card("Приём за выбранный день",'<p id="doseStatus">'+supplementStatus(state,selectedDay)+'</p>'+state.supps.filter(x=>x.date.startsWith(selectedDay)).sort((a,b)=>(periodStart[b.period]||"").localeCompare(periodStart[a.period]||"")||b.date.localeCompare(a.date)).map(x=>x.names.map(n=>{
+ return hero()+dailyRecap()+(state.profile.supps.length?card("Мои добавки",'<div id="planPanel">'+planPanel(selectedDay)+'</div>'+btn("supp","Подтвердить приём",true)):"")+
+ (state.profile.supps.length?card("Приём за выбранный день",'<p id="doseStatus">'+supplementStatus(state,selectedDay)+'</p>'+state.supps.filter(x=>x.date.startsWith(selectedDay)).map(x=>({...x,names:x.names.filter(n=>SportSupplementProducts.enabled(state,n)),sourceIndex:state.supps.indexOf(x)})).filter(x=>x.names.length).sort((a,b)=>(periodStart[b.period]||"").localeCompare(periodStart[a.period]||"")||b.date.localeCompare(a.date)).map(x=>x.names.map(n=>{
    const name=canonicalSupp(n),id=esc(encodeURIComponent(n)),isProtein=name==="Протеин",quantified=isProtein||name==="Креатин";
    const facts=isProtein?proteinIntake(state.meals.find(m=>m.id===x.mealId&&m.date.startsWith(selectedDay)),x):null;
    const servings=facts?.servings??x.servings, grams=isProtein?facts.proteinGrams:scaledValue(x.creatinePerServing??3,servings);
-   const amount=quantified?(" · "+(servings>0?doseNumber(servings)+(isProtein?" саше":" порц."):"количество неизвестно")+
+   const amount=x.productSnapshot?" · "+SportSupplementProducts.summary(name,x.productSnapshot):quantified?(" · "+(servings>0?doseNumber(servings)+(isProtein?" саше":" порц."):"количество неизвестно")+
      (grams==null?"":" · "+doseNumber(grams)+(isProtein?" г белка":" г креатина"))):"";
-   return '<div data-history-index="'+state.supps.indexOf(x)+'"><p>'+esc(x.period+(x.date.length>10?" "+x.date.slice(11):"")+" · "+n+amount)+'</p>'+btn("edit-dose-"+id,"Исправить · "+esc(n))+btn("undo-supp-"+id,"Снять отметку · "+esc(n))+'</div>';
- }).join("")).join(""));
+   return '<div data-history-index="'+x.sourceIndex+'"><p>'+esc(x.period+(x.date.length>10?" "+x.date.slice(11):"")+" · "+n+amount)+'</p>'+btn("edit-dose-"+id,"Исправить · "+esc(n))+btn("undo-supp-"+id,"Снять отметку · "+esc(n))+'</div>';
+ }).join("")).join("")):"");
 }
 function cardioOptions(p,selected,blank=false){
  return (blank?'<option value="">Не заполнено — выбери активность</option><option value="skipped" '+(selected==="skipped"?'selected':'')+'>Не выполнялась</option>':"")+cardioActivities.filter(a=>cardioEnabled(p,a)).map(a=>'<option value="'+esc(a)+'" '+(a===selected?'selected':'')+'>'+esc(cardioLabel(a))+'</option>').join("");
@@ -1034,7 +1048,7 @@ function profile(){
  const manualForm=linked?'<details class="equipmentGroup" data-disclosure="manual-weight"><summary>Внести отдельный замер вручную</summary><div>'+manual+'</div></details>':manual;
  return btn("results","← К результатам")+'<section class="profileEditor">'+card("Данные профиля",field("height","Рост, см","number",p.height)+field("birth","Дата рождения","date",p.birth||"")+'<label>Пол<select id="sex">'+options(["","Мужской","Женский"],p.sex)+'</select></label><p>'+metrics+'</p><p>Вес · '+(kg||"—")+' кг · '+esc(source)+'</p>'+binding+manualForm)+
  card("Настройки плана",'<label>Основная цель<select id="goal">'+options(goals,p.goal)+'</select></label><div>Дополнительные цели</div>'+goals.map(n=>check(n,'name="extra" value="'+esc(n)+'"',p.extra.includes(n))).join('')+'<div><label>Приоритет<select id="focus">'+options(["","Ноги","Ягодицы","Спина","Грудь","Плечи","Руки","Пресс и корпус"],priorityGroup(p))+'</select></label></div>'+field("minutes","Длительность, мин","number",p.minutes)+field("step","Шаг прибавки, кг","number",p.step,"step=any")+check("Оставлять пропущенный день ног на том же дне недели (иначе — продолжить очередь в ближайшую тренировку)",'id="fixed"',p.fixed)+'<label>Рабочие подходы<select id="workingSets"><option value="0">По длительности и истории</option>'+[2,3,4].map(n=>'<option value="'+n+'" '+(Number(p.workingSets)===n?'selected':'')+'>'+n+'</option>').join('')+'</select></label>'+check("Возвращаюсь после перерыва · без автоматической прибавки",'id="returning"',p.returning)+'<details class="equipmentGroup weekPlan"><summary>Недельное расписание</summary><div>'+[1,2,3,4,5,6,0].map(i=>'<label>'+['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][i]+'<select data-week="'+i+'" id="week'+i+'">'+options(["Отдых",...Object.keys(trainingSlots)],p.week?.[i]||'Отдых')+'</select></label>').join('')+'</div></details><div>Дни с акцентом на ноги</div>'+["Вс","Пн","Вт","Ср","Чт","Пт","Сб"].map((n,i)=>check(n,'name="legday" value="'+i+'"',(p.legDays||[2]).includes(i))).join("")+check('Показывать галочку «Готово» у подходов','id="showSetDone"',p.showSetDone!==false)+'<p class="muted">Когда галочка скрыта, при завершении засчитываются только полностью введённые фактические подходы. Подсказки плана не считаются результатом.</p>'+cardioPreferences(p)+exercisePreferences(p))+'<div class="profileSaveBar">'+btn("profile","Сохранить профиль",true)+'</div></section>'+
- SportGoalsView.settings(state,selectedDay)+reportSettings()+supplementPreferences(p);
+ SportGoalsView.settings(state,selectedDay)+reportSettings()+supplementPreferences(p)+SportSupplementView.settings(state,selectedDay);
 }
 const val=id=>$(id).value;
 const selected=n=>Array.from(document.querySelectorAll('input[name="'+n+'"]:checked:not(:disabled)'),x=>x.value);
@@ -1053,12 +1067,12 @@ document.addEventListener("change",ev=>{
  if(ev.target.id==="report-exercise"){reportExercise=ev.target.value;render();$("report-exercise")?.focus({preventScroll:true})}
  if(ev.target.id==="energy-mode")syncEnergyFields();
 });
-async function action(a,historyIndex){
+async function action(a,historyIndex,sourceButton){
  if(a==="save-protein-goal"){
    await saveForm(a,s=>SportGoals.setProtein(s,selectedDay,val("protein-mode"),Number(val("protein-goal")),$("regular-strength").checked));render();return;
  }
  if(a==="save-creatine-goal"){
-   await saveForm(a,s=>{if(!SportVisibility.supplement(s,"Креатин"))throw Error("Креатин отключён в настройках профиля.");return SportGoals.setCreatine(s,selectedDay,$("creatine-plan").checked,Number(val("creatine-goal")),Number(val("creatine-size")))});render();return;
+   await saveForm(a,s=>{if(!SportVisibility.supplement(s,"Креатин"))throw Error("Креатин отключён в настройках профиля.");return SportGoals.setCreatine(s,selectedDay,$("creatine-plan").checked,Number(val("creatine-goal")),Number(val("creatine-size")),val("creatine-substance"))});render();return;
  }
  if(a.startsWith("approve-proposal-")||a.startsWith("reject-proposal-")){
    const approve=a.startsWith("approve-proposal-"),id=a.slice(approve?17:16);
@@ -1158,11 +1172,16 @@ async function action(a,historyIndex){
    render();document.querySelector('[data-action="'+CSS.escape(a)+'"]')?.closest("details").querySelector("summary").focus({preventScroll:true});
    note(value?"Комментарий сохранён.":"Комментарий удалён.");return
  }
+ if(a==="save-supplement-recipe"){
+   const panel=sourceButton?.closest("[data-recipe-settings]");
+   if(!panel)throw Error("Открой настройки рецепта заново.");
+   const name=panel.dataset.recipeSettings,date=panel.querySelector("[data-recipe-date]").value,recipe=SportSupplementView.read(panel);
+   await saveForm("save-supplement-recipe",s=>{if(!SportSupplementProducts.enabled(s,name))throw Error("Добавка отключена.");SportSupplementProducts.saveRecipe(s,name,date,recipe)},name);render();note("Обычный рецепт сохранён; прошлые приёмы сохранены со своим составом.");return;
+ }
  if(a==="save-supps"){
    const uses=selected("uses"),today=local().slice(0,10);
    await saveForm("save-supps",s=>{
-     s.profile.supps=uses;
-     if(Array.isArray(s.suppPlans?.[today]))s.suppPlans[today]=[...uses];
+     SportSupplementProducts.setAvailability(s,today,uses);
    });render();note("Выбор добавок сохранён.");return;
  }
  if(/^(?:up|down|remove|choose)-\d+$/.test(a)||a==="choose-new"){
@@ -1309,6 +1328,7 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
    await commit(s=>{
      const index=historyIndex??s.supps.findIndex(x=>x.date.startsWith(selectedDay)&&x.names.some(n=>canonicalSupp(n)===canonicalSupp(name)));
      rememberDosePlan(s,selectedDay);
+     if(s.supps[Number(index)]?.productSnapshot){SportSupplementProducts.removeEvent(s,s.supps[Number(index)].id);return}
      if(canonicalSupp(name)==="Протеин")preserveMealProtein(s,s.supps[Number(index)]);
      s.supps=replaceRecordedDose(s.supps,Number(index),name);
    });render();return;
@@ -1318,11 +1338,13 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
    const slot=input.closest("[data-slot]").dataset.slot;
    const move=state.suppMoves?.[selectedDay]?.[input.value];
    const controls=input.closest(".dose").querySelector("[data-dose-controls]");
-   return {...doseEntry(input.value,selectedDay,slot,move?.clock,local()),...doseSnapshot(input.value,controls?doseAmounts(controls):null)};
+   const storageKey="sport:pending-dose:"+who+":"+selectedDay+":"+input.value;
+   let id=sessionStorage.getItem(storageKey);if(!id){id=newEntryId();sessionStorage.setItem(storageKey,id)}
+   return {id,...doseEntry(input.value,selectedDay,slot,move?.clock,local()),...doseSnapshot(input.value,controls?doseAmounts(controls):null)};
  });
  if(!choices.length)throw Error("Выбери принятые добавки.");
- await commit(s=>addDoseEntries(s,selectedDay,choices));
- for(const entry of choices){pendingDoses.delete(entry.names[0]);draftDoseAmounts.delete(who+"|"+entry.names[0])}
+ await commit(s=>{for(const entry of choices)SportSupplementProducts.saveEvent(s,entry)});
+ for(const entry of choices){sessionStorage.removeItem("sport:pending-dose:"+who+":"+selectedDay+":"+entry.names[0]);pendingDoses.delete(entry.names[0]);draftDoseAmounts.delete(who+"|"+entry.names[0])}
  }
  if(a==="search"||a==="search-online"){startFoodSearch(a==="search-online");return}
  if(a.startsWith("pick-")){const item=results[+a.slice(5)];if(item)selectFoodCard(item);return}
@@ -1356,7 +1378,7 @@ w.date=when("start");w.end=(draft.end||selectedDay!==local().slice(0,10))?when("
    if(!intake.oil)delete portion.oil;
    if(estimateNote)portion.estimateNote=estimateNote;else delete portion.estimateNote;
    if($("one-off").checked)portion.oneOff=true;else delete portion.oneOff;
-   await saveForm("meal",s=>{SportPortions.setDoseLink(s,portion,old,linked);SportPortions.saveMeal(s,portion,card,Boolean(editingMeal))});
+   await saveForm("meal",s=>{SportPortions.setDoseLink(s,portion,old,old?.supplementEventId?undefined:linked);SportPortions.saveMeal(s,portion,card,Boolean(editingMeal));SportSupplementProducts.syncFromMeal(s,portion)});
    if(date.slice(0,10)!==selectedDay)selectDay(date.slice(0,10));
    editingMeal=null;editingMealBase=null;manualTime=date.slice(11,16);render();return;
  }
@@ -1418,7 +1440,7 @@ document.addEventListener("click",async ev=>{const b=ev.target.closest("button")
    window.scrollTo(0,0);
    return
  }
- busy=true;$("who").disabled=true;b.setAttribute("aria-busy","true");b.parentElement.querySelector(".saveError")?.remove();try{if(b.dataset.action==="finish"&&Array.from(document.querySelectorAll("#content input")).some(i=>!i.closest("[data-health-panels]")&&!i.reportValidity()))return;await action(b.dataset.action,b.closest("[data-history-index]")?.dataset.historyIndex)}catch(e){
+ busy=true;$("who").disabled=true;b.setAttribute("aria-busy","true");b.parentElement.querySelector(".saveError")?.remove();try{if(b.dataset.action==="finish"&&Array.from(document.querySelectorAll("#content input")).some(i=>!i.closest("[data-health-panels]")&&!i.reportValidity()))return;await action(b.dataset.action,b.closest("[data-history-index]")?.dataset.historyIndex,b)}catch(e){
    note(e.message);
    if(formBindings.some(f=>f.button===b)||["finish","save-food-card"].includes(b.dataset.action)){
      const message=document.createElement("p");message.className="saveError";message.textContent=e.message;b.after(message);
@@ -1516,7 +1538,8 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
  const source=document.querySelector('[data-move="'+CSS.escape(name)+'"]');
  if(!source)return;
  const index=Number(historyIndex??state.supps.findIndex(x=>x.date.startsWith(selectedDay)&&x.names.some(n=>canonicalSupp(n)===name)));
- const old=state.supps[index];
+ const old=checkAfter?null:state.supps[index];
+ if(!SportSupplementProducts.enabled(state,name))return;
  const move=state.suppMoves?.[selectedDay]?.[name];
  const initial=target||old?.period||move?.period||source.closest("[data-slot]").dataset.slot;
  const slot=periods.includes(initial)?initial:period(local());
@@ -1527,14 +1550,14 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
  dlg.innerHTML='<form><h2>'+esc(name)+'</h2><p>'+dayLabel(selectedDay)+'</p><label>Время суток<select name="slot">'+options(periods,slot)+'</select></label><label>Точное время, если помнишь<input type="time" name="clock" value="'+esc(clock)+'"></label>'+(old?doseFields(name,old,selectedDay,true):"")+'<p class="moveError" role="status"></p><div class="actions"><button class="primary" type="submit">'+(old?"Исправить отметку":"Выбрать период")+'</button><button type="button" name="cancel">Отмена</button></div></form>';
  document.body.append(dlg);
  const form=dlg.querySelector("form"),fields=form.elements;
- if(old&&["Протеин","Креатин"].includes(name)){
+ if(old&&(SportSupplementProducts.supported(name)||old.productSnapshot)){
    const label=document.createElement("label");
    label.textContent="Дата приёма"+(old.mealId?" и связанной порции":"");
    const input=document.createElement("input");
    input.type="date";input.name="intakeDay";input.required=true;input.max=local().slice(0,10);input.value=selectedDay;
    label.append(input);form.querySelector("h2").after(label);
  }
- if(old?.mealId&&name==="Протеин"&&fields.mealId){
+ if(old?.mealId&&!old.productSnapshot&&name==="Протеин"&&fields.mealId){
    const meal=state.meals.find(m=>m.id===old.mealId&&m.date.startsWith(selectedDay));
    if(meal?.productKind){
      const edit=document.createElement("button");edit.type="button";edit.textContent="Исправить состав связанной порции · "+meal.name;
@@ -1561,7 +1584,8 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
  try{
  const intakeDay=fields.intakeDay?.value||selectedDay;
  const entry=doseEntry(name,intakeDay,destination,clock,old?local():null);
- const controls=form.querySelector("[data-dose-controls]");
+ const applyProduct=!!fields.applyProduct?.checked;
+ const controls=applyProduct||old?.productSnapshot?form.querySelector("[data-product-dose]"):form.querySelector("[data-dose-controls]:not([data-product-dose])");
  if(controls){
    const values=doseAmounts(controls);
    if(values.servings||old.servings!=null)Object.assign(entry,doseSnapshot(name,values,old));
@@ -1583,7 +1607,10 @@ function openMove(name,target,checkAfter=false,fromAction=false,historyIndex){
      SportPortions.setMealTime(linked,moved);
    }
  }
- if(old)s.supps=replaceRecordedDose(s.supps,index,name,entry);
+ if(!SportSupplementProducts.enabled(s,name))throw Error("Добавка отключена. Обнови выбор в настройках.");
+ if(old?.productSnapshot)SportSupplementProducts.saveEvent(s,{...entry,id:old.id,edit:true});
+ else if(old&&applyProduct){s.supps=replaceRecordedDose(s.supps,index,name);SportSupplementProducts.saveEvent(s,{...entry,id:old.id||newEntryId()})}
+ else if(old)s.supps=replaceRecordedDose(s.supps,index,name,entry);
  });
  if(checkAfter)pendingDoses.add(name);
  if(intakeDay!==selectedDay)selectDay(intakeDay);

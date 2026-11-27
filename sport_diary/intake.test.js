@@ -58,16 +58,16 @@ test("Отчёт отделяет ноль на прошедшую дату, с�
   const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
   const ctx=vm.createContext({...require("./web/logic"),SportPortions:require("./web/portions"),
     state:{supps:[]},esc:String,btn:(a,b)=>'<button data-action="'+a+'">'+b+'</button>',dayLabel:String});
-  for(const name of ["visibility","goals","health","reports","report-view"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",name+".js"),"utf8"),ctx);
+  for(const name of ["visibility","supplement-products","goals","health","reports","report-view"])vm.runInContext(fs.readFileSync(path.join(__dirname,"web",name+".js"),"utf8"),ctx);
   function render(s,today){
     s={...s,profile:{...s.profile,supps:["Креатин","Протеин"]}};ctx.state=s;ctx.report=diaryReport(s,[],null,date,"day",today);
     return vm.runInContext("intakeBody(report)",ctx);
   }
   const past="2026-03-03";
   assert.match(render({},past), /Калории<\/small><strong>—/);
-  assert.match(render({},past), /Креатин<\/small><strong>0 г/);
+  assert.match(render({},past), /Креатин: старые записи без вида вещества<\/small><strong>0 г/);
   assert.match(render({supps:[{date,names:["Креатин"],servings:1}]},past), /Порошок протеина<\/small><strong>0 г/);
-  assert.match(render({meals:[meal(date,"завтрак",[80,10,0,0])]},date), /Креатин<\/small><strong>—/);
+  assert.match(render({meals:[meal(date,"завтрак",[80,10,0,0])]},date), /Креатин: старые записи без вида вещества<\/small><strong>—/);
   const text=render({meals:[meal(date,"кефир",[80,10,0,0]),meal(date,"ужин",[90,1,null,2])]},past);
   assert.match(text,/Жиры<\/small><strong>0 г<\/strong><details><summary>Уточнить 1 запись/);
   assert.ok(text.includes("refine-meal-"+encodeURIComponent("ужин")));

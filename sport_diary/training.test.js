@@ -76,7 +76,7 @@ function harness(p={}){
  localStorage:{get length(){return storage.size},key:i=>[...storage.keys()][i],removeItem:k=>storage.delete(k),getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
  fetch:async(url,options)=>({ok:true,json:async()=>{if(url==='profiles')return [{id:'person1',name:'Первый'}];if(url.startsWith('weight'))return [];if(options?.body){const b=JSON.parse(options.body);entries.set(url,{data:b.data,rev:b.rev+1})}return entries.get(url)||{data:{},rev:0}}})});
  ctx.exerciseCatalog=catalog;ctx.foodWords=require('./web/food-words.json');ctx.exercisePhotoBase='photos/';
- for(const f of ['logic','foods','portions','goals','health','reports','goals-view','health-view','report-view','app'])vm.runInContext(fs.readFileSync(path.join(__dirname,'web',f+'.js'),'utf8'),ctx);
+ for(const f of ['logic','visibility','foods','portions','supplement-products','supplement-view','goals','health','reports','goals-view','health-view','report-view','app'])vm.runInContext(fs.readFileSync(path.join(__dirname,'web',f+'.js'),'utf8'),ctx);
  const run=s=>vm.runInContext(s,ctx);
  return {run,node,entries,listeners,async start(){await run('load()');run('selectDay("2026-01-01")');node('start').value='2026-01-01T10:00';await run('action("start")');node('end').value='2026-01-01T11:00';run('draft.end="2026-01-01T11:00";tab=1')}};
 }

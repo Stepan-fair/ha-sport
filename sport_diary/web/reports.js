@@ -7,6 +7,7 @@ function autoEnergyRule(profile,stored){
     factor:stored?.mode==="auto"?stored.factor:1.2};
 }
 const healthReports=typeof module==="undefined"?SportHealth:require("./health.js");
+const supplementProducts=typeof module==="undefined"?SportSupplementProducts:require("./supplement-products.js");
 const goalReports=typeof module==="undefined"?SportGoals:require("./goals.js");
 // All report dates are calendar days in the diary's local time.
 function reportDate(d){
@@ -22,7 +23,7 @@ function reportStart(day,period){
 function supplementStatus(state,day,today=energyLogic.diaryTime().slice(0,10)){
   const taken=new Set((state.supps||[]).filter(x=>x.date.slice(0,10)===day).flatMap(x=>x.names.map(energyLogic.canonicalSupp)));
   if(!taken.size)return day<today?"Не принимал":day===today?"Пока нет отметки":"Запланировано";
-  const planned=state.suppPlans?.[day];
+  const planned=Object.hasOwn(state.suppPlans||{},day)?state.suppPlans[day]:state.supplementAvailability?supplementProducts.availableOn(state,day):undefined;
   if(!Array.isArray(planned))return "Есть отметки";
   return planned.some(n=>!taken.has(energyLogic.canonicalSupp(n)))?"Принял часть":"Принял";
 }
@@ -35,10 +36,10 @@ function scaledValue(value,factor){
   return Number.isFinite(result)?result:null;
 }
 function emptyIntake(){
-  return {count:0,known:[0,0,0,0],knownCount:[0,0,0,0],missing:[0,0,0,0],totals:[null,null,null,null]};
+  return {count:0,approximate:0,known:[0,0,0,0],knownCount:[0,0,0,0],missing:[0,0,0,0],totals:[null,null,null,null]};
 }
 function mergeIntake(sum,part){
-  sum.count+=part.count;
+  sum.count+=part.count;sum.approximate+=(part.approximate||0);
   for(const i of macroSlots){
     sum.known[i]+=part.known[i];
     sum.missing[i]+=part.missing[i];
@@ -48,9 +49,13 @@ function mergeIntake(sum,part){
   return sum;
 }
 const doseMetrics=[
-  ["creatineGrams","creatine","Креатин","г"],["proteinGrams","protein","Белок из протеина","г"],
+  ["creatineGrams","creatine","Креатин: старые записи без вида вещества","г"],["proteinGrams","protein","Белок из протеина","г"],
   ["creatineServings","creatineServings","Порции креатина","порц."],["proteinServings","proteinServings","Порции протеина","саше"],
-  ["powderGrams","powder","Порошок протеина","г"]
+  ["powderGrams","powder","Порошок протеина","г"],
+  ["proteinEvents","proteinEvents","Приёмы протеина","приёмов"],["milkMl","milkMl","Молоко в шейках","мл"],["milkProtein","milkProtein","Белок из молока","г"],
+  ["creatinePowderGrams","creatinePowder","Порошок креатина","г"],["creatineMonohydrateGrams","creatineMonohydrate","Моногидрат креатина","г"],["creatineActiveGrams","creatineActive","Креатин (вещество)","г"],
+  ["omegaServings","omegaServings","Капсулы омега-3","капс."],["fishOilMg","fishOil","Рыбий жир","мг"],["omegaMg","omega","Омега-3, не менее","мг"],["epaMg","epa","ЭПК, не менее","мг"],["dhaMg","dha","ДГК, не менее","мг"],
+  ["ironEvents","ironEvents","Приёмы железа","приёмов"],["ironDrops","ironDrops","Капли препарата железа","капель"],["ironMl","ironMl","Объём препарата железа","мл"],["ironMg","iron","Принято железа","мг"]
 ];
 function emptyDoseTotals(){
   return Object.fromEntries(doseMetrics.flatMap(([key,prefix])=>[[key,0],[prefix+"Known",0],[prefix+"Unknown",0]]));
@@ -73,7 +78,7 @@ function proteinIntake(meal,entry){
   return {servings,powderGrams,proteinGrams,nut};
 }
 function dayIntake(meals,entries){
-  const summary=emptyIntake(), doses=emptyDoseTotals(), supplements=[],issues=[];
+  const summary=emptyIntake(), doses=emptyDoseTotals(), supplements=[],issues=[];let approximate=0;
   function missing(source,field){
     if(!source.fields.length)issues.push(source);
     source.fields.push(field);
@@ -114,13 +119,30 @@ function dayIntake(meals,entries){
     const kinds=new Set(entry.names.map(energyLogic.canonicalSupp));
     const servings=Number.isFinite(entry.servings)&&entry.servings>0?entry.servings:null;
     const source=name=>({kind:"dose",index:entry.sourceIndex,date:entry.date,label:name,period:entry.period,fields:[]});
+    const snap=entry.productSnapshot;
+    if(snap?.estimated)approximate++;
     if(kinds.has("Креатин")){
       const src=source("Креатин");
       record("creatineServings",servings,src);
-      record("creatineGrams",scaledValue(entry.creatinePerServing??3,servings),src);
+      if(!snap)record("creatineGrams",scaledValue(entry.creatinePerServing??3,servings),src);
+      if(snap){
+        for(const [metric,key] of [["creatinePowderGrams","powderGrams"],["creatineMonohydrateGrams","monohydrateGrams"],["creatineActiveGrams","activeGrams"]])record(metric,snap[key]??null,src);
+        if(snap.nutritionMode==="label")add(snap.totals,src);
+      }
+    }
+    if(kinds.has("Железо")){
+      const src=source("Железо");record("ironEvents",1,src);
+      for(const [metric,key] of [["ironDrops","drops"],["ironMl","ml"],["ironMg","ironMg"]])record(metric,snap?.[key]??null,src);
+    }
+    if(kinds.has("Омега-3")){
+      const src=source("Омега-3");record("omegaServings",servings,src);
+      for(const key of ["fishOilMg","omegaMg","epaMg","dhaMg"])record(key,snap?.[key]??null,src);
+      if(snap?.totals)add(snap.totals,src);
     }
     if(kinds.has("Протеин")){
       const src=source("Протеин"),meal=entry.mealId&&meals.find(m=>m.id===entry.mealId);
+      record("proteinEvents",1,src);
+      if(snap){record("milkMl",snap.milkMl??null,src);record("milkProtein",snap.milkProtein??null,src)}
       const sameMeal=meal&&linked.get(meal.id);
       let s;
       if(sameMeal?.length>1 && ["protein","protein_mix"].includes(meal.productKind)){
@@ -133,11 +155,12 @@ function dayIntake(meals,entries){
       if(!meal)add(s.nut,src);
     }
   }
-  return {...summary,doses,supplements,issues};
+  return {...summary,doses,supplements,issues,approximate};
 }
 function removeMealIntake(state,id){
   const meal=state.meals.find(m=>m.id===id);
   if(!meal)return;
+  if(meal.supplementEventId){supplementProducts.removeEvent(state,meal.supplementEventId);state.meals=state.meals.filter(m=>m.id!==id);return}
   state.supps=(state.supps||[]).flatMap(row=>{
     if(row.mealId!==id)return [row];
     const protein=row.names.filter(n=>energyLogic.canonicalSupp(n)==="Протеин"),others=row.names.filter(n=>!protein.includes(n));

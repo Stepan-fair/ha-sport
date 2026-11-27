@@ -42,9 +42,10 @@ const SportGoals = (() => {
     const rule=autoRule(state.profile,old.regular);
     if(Object.keys(rule).some(key=>rule[key]!==old[key]))state.proteinGoals[day]=rule;
   }
-  function setCreatine(state, day, enabled, grams, serving) {
+  function setCreatine(state, day, enabled, grams, serving, substance="legacy") {
+    if(!["powder","monohydrate","active","legacy"].includes(substance))throw Error("Укажи вещество для цели креатина.");
     if(!positive(serving) || (enabled&&!positive(grams)))throw Error("Укажи положительную массу порции и дневную цель включённого плана.");
-    (state.creatineGoals||={})[day]={enabled:!!enabled,serving,...(enabled?{grams}:{})};
+    (state.creatineGoals||={})[day]={enabled:!!enabled,serving,substance,unit:"g",...(enabled?{grams}:{})};
   }
   function proteinTarget(rule, day, weight) {
     if(rule.mode==="manual")return rule.grams;
@@ -102,15 +103,25 @@ const SportGoals = (() => {
     total.actual+=actual;total.target+=target;total.credit+=Math.min(actual,target);
   }
   function report(state, start, end, today, weights, food, calculate) {
-    const rows=[], protein=newTotals(), creatine=newTotals(), fiber={known:0,knownCount:0,count:0}, groups=new Map();
+    const rows=[], protein=newTotals(), creatine=newTotals(),creatineBySubstance=new Map(), fiber={known:0,knownCount:0,count:0}, groups=new Map();
     const until=end<today?end:today;
     let wi=0,weight=null;
     for(let day=start;day<=until;day=nextDay(day,1)) {
       while(wi<weights.length && weights[wi].day<=day)weight=weights[wi++];
       const p=proteinRule(state,day),c=creatineRule(state,day),target=proteinTarget(p,day,weight);
       const {meals,supps}=food.get(day)||{meals:[],supps:[]}, n=calculate(meals,supps), doses=n.doses;
-      const creatineKnown=doses.creatineKnown>0, creatineMarked=creatineKnown||doses.creatineUnknown>0;
-      const creatineActual=doses.creatineUnknown||(!creatineMarked&&day>=today) ? null : doses.creatineGrams;
+      const substance=c.substance||"legacy", entries=supps.filter(e=>e.names.some(n=>supplementKind(n)==="Креатин"));
+      const amounts=entries.map(e=>{
+        if(substance==="legacy")return !e.productSnapshot&&positive(e.servings)?(e.creatinePerServing??3)*e.servings:null;
+        const key={powder:"powderGrams",monohydrate:"monohydrateGrams",active:"activeGrams"}[substance];
+        return e.productSnapshot?.[key]??(e.creatineBasis===substance&&positive(e.servings)?e.creatinePerServing*e.servings:null);
+      });
+      const creatineMissing=amounts.filter(v=>!valid(v)).length,creatineKnown=amounts.some(valid),creatineMarked=entries.length>0;
+      const creatineTotal=amounts.filter(valid).reduce((a,b)=>a+b,0);
+      const creatineActual=creatineMissing||(!creatineMarked&&day>=today) ? null : creatineTotal;
+      const product=typeof module==="undefined"?SportSupplementProducts:require("./supplement-products.js");
+      const enabledThen=!state.supplementAvailability||product.availableOn(state,day).includes("Креатин");
+      const creatineTarget=c.enabled&&enabledThen?c.grams:null;
       const gramValues=meals.map(m=>m.fiberTotal).filter(valid);
       const f={known:gramValues.reduce((s,v)=>s+v,0),knownCount:gramValues.length,count:n.count};
       const dayGroups=mealGroups(meals,supps,calculate);
@@ -123,13 +134,19 @@ const SportGoals = (() => {
       for(const key of Object.keys(fiber))fiber[key]+=f[key];
       const recorded=portions.recordedFoodCount(meals)>0;
       compare(protein,target,n.totals[1],recorded);
-      compare(creatine,c.enabled?c.grams:null,creatineActual,creatineMarked);
+      compare(creatine,creatineTarget,creatineActual,creatineMarked);
+      if(creatineTarget!=null||creatineMarked){
+        if(!creatineBySubstance.has(substance))creatineBySubstance.set(substance,{...newTotals(),substance});
+        compare(creatineBySubstance.get(substance),creatineTarget,creatineActual,creatineMarked);
+      }
       rows.push({day,weight,groups:dayGroups,fiber:f,
         protein:{mode:p.mode,target,actual:n.totals[1],known:n.known[1],count:n.count,missing:n.missing[1],issues:n.issues.filter(x=>x.fields.includes("Белки всего"))},
-        creatine:{target:c.enabled?c.grams:null,actual:creatineActual,known:doses.creatineGrams,knownCount:doses.creatineKnown,missing:doses.creatineUnknown},
+        creatine:{target:creatineTarget,actual:creatineActual,known:creatineTotal,knownCount:amounts.filter(valid).length,missing:creatineMissing,substance},
         powder:{known:doses.proteinGrams,knownCount:doses.proteinKnown,missing:doses.proteinUnknown}});
     }
-    for(const metric of [protein,creatine])if(metric.target>0)metric.percent=Math.round(100*metric.credit/metric.target);
+    for(const metric of [protein,creatine,...creatineBySubstance.values()])if(metric.target>0)metric.percent=Math.round(100*metric.credit/metric.target);
+    creatine.bySubstance=[...creatineBySubstance.values()];
+    if(creatine.bySubstance.filter(v=>v.comparedDays).length>1){creatine.actual=null;creatine.target=null;creatine.credit=null;creatine.percent=null}
     return {rows,protein,creatine,fiber,groups:[...groups.values()],trends:weightTrends(weights,until),latest:weights.filter(w=>w.day<=until).at(-1)||null};
   }
   return {proteinRule,creatineRule,setProtein,setCreatine,profileChanged,saveWeight,report};

@@ -23,7 +23,7 @@ test("Открытый дневник перечитывает порции, с�
     }
   });
   const run=script=>vm.runInContext(script,ctx);
-  for(const script of ["logic","visibility","foods","portions","goals","health","reports","goals-view","health-view","report-view","app"]){
+  for(const script of ["logic","visibility","foods","portions","supplement-products","supplement-view","goals","health","reports","goals-view","health-view","report-view","app"]){
     run(fs.readFileSync(path.join(__dirname,"web",script+".js"),"utf8"));
   }
   const badSensor=assert.rejects(run('request("health/person1",{refresh:true})'),/Уточните дату показания/);

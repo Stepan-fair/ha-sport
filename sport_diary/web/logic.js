@@ -388,7 +388,7 @@ const supplements = {
  "Железо": ["Железо", "Препарат железа. Доза и дни определяются назначением.", "По назначению", "Ручная отметка по назначенной схеме."]
 };
 function canonicalSupp(name){
- const rules=[[/омег|omega/i,"Омега-3"],[/витамин\s*[дd]\s*3?|^d3$/i,"Витамин D3"],[/креатин|creatine/i,"Креатин"],[/магний|magnesium/i,"Магний"],[/протеин|protein/i,"Протеин"],[/железо/i,"Железо"]];
+ const rules=[[/омег|omega/i,"Омега-3"],[/витамин\s*[дd]\s*3?|^d3$/i,"Витамин D3"],[/креатин|creatine/i,"Креатин"],[/магний|magnesium/i,"Магний"],[/протеин|protein/i,"Протеин"],[/железо|ферромальт|ferromalt/i,"Железо"]];
  return rules.find(([re])=>re.test(name))?.[1]||name;
 }
 function recordedDose(name,servings,powder=30,mealId=""){

@@ -4,6 +4,7 @@ const SportGoalsView = (() => {
   const model=typeof module==="undefined"?SportGoals:require("./goals");
   const visibility=typeof module==="undefined"?SportVisibility:require("./visibility");
   const enabled=(state,name)=>!state||visibility.supplement(state,name);
+  const substanceLabels={powder:"Порошок продукта",monohydrate:"Моногидрат креатина",active:"Креатин (вещество)",legacy:"Вещество старой цели не уточнено"};
   const num=new Intl.NumberFormat("ru-RU",{maximumFractionDigits:1});
   const fmt=n=>num.format(n);
   const html=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -25,8 +26,9 @@ const SportGoalsView = (() => {
       '<button class="primary" data-action="save-protein-goal">Сохранить цель белка</button>'+history(state.proteinGoals,r=>r.mode==="manual"?fmt(r.grams)+" г/сут":modes[r.mode]))+
       (enabled(state,"Креатин")?article("Личный план креатина",since+'<label class="check"><input id="creatine-plan" type="checkbox"'+checked(c.enabled)+'>Включить ежедневный план</label>'+
       '<div id="creatine-target">'+grams("creatine-goal","Моя цель в сутки, г",c.grams??3)+'</div>'+
-      grams("creatine-size","Креатин в одной порции моего продукта, г",c.serving??3)+
-      '<p>Размер порции используется для новых отметок. План действует и в дни отдыха.</p>'+
+      '<label>Что измеряет моя цель<select id="creatine-substance">'+Object.entries(substanceLabels).map(([key,label])=>'<option value="'+key+'"'+(key===(c.substance||"legacy")?' selected':'')+'>'+label+'</option>').join("")+'</select></label>'+
+      grams("creatine-size","Масса в старых отметках без продукта, г",c.serving??3)+
+      '<p>Новый продукт хранит отдельно массу порошка, моногидрата и креатина. Старые записи без вида вещества не преобразуются автоматически и не сравниваются с новой целью. План действует и в дни отдыха.</p>'+
       '<button class="primary" data-action="save-creatine-goal">Сохранить план и размер порции</button>'+
       history(state.creatineGoals,r=>(r.enabled?fmt(r.grams)+" г/сут":"План выключен")+" · порция "+fmt(r.serving)+" г")):"");
   }
@@ -55,7 +57,7 @@ const SportGoalsView = (() => {
     return '<p><b>Белок из еды и добавок</b> · '+result+(p.target!=null?' / '+fmt(p.target)+' г':' · '+(p.mode==="auto"?'недостаточно данных для ориентира':'только факт'))+'</p>'+
       (p.target!=null&&p.count>p.missing?'<p>До ориентира по внесённым данным · '+fmt(Math.max(0,p.target-p.known))+' г</p>':"")+how+links+
       (enabled(state,"Протеин")&&(powder.knownCount||powder.missing)?'<details><summary>Вклад протеиновой добавки</summary><p>'+known(powder.known,powder.knownCount,powder.missing)+'</p></details>':"")+
-      (enabled(state,"Креатин")?'<p><b>Креатин</b> · '+dose+(c.target==null?' · план выключен':' / '+fmt(c.target)+' г')+'</p>':"");
+      (enabled(state,"Креатин")?'<p><b>Креатин · '+html(substanceLabels[c.substance||"legacy"])+'</b> · '+dose+(c.target==null?' · план выключен':' / '+fmt(c.target)+' г')+'</p>':"");
   }
   function today(data,state) {
     return data?.rows.length?article("Питание и личные цели",dayBody(data.rows.at(-1),state)):"";
@@ -63,7 +65,7 @@ const SportGoalsView = (() => {
   function report(data,period,state) {
     if(!data?.rows.length)return "";
     const p=data.protein,c=data.creatine,f=data.fiber;
-    const comparison=metric=>metric.comparedDays?fmt(metric.actual)+' / '+fmt(metric.target)+' г за '+metric.comparedDays+' дн. · выполнение '+metric.percent+'%':'Пока нет сопоставимых дней';
+    const comparison=metric=>metric.bySubstance?.filter(v=>v.comparedDays).length>1?metric.bySubstance.filter(v=>v.comparedDays).map(v=>substanceLabels[v.substance]+": "+fmt(v.actual)+" / "+fmt(v.target)+" г · "+v.percent+"%").join("; "):metric.comparedDays?fmt(metric.actual)+' / '+fmt(metric.target)+' г за '+metric.comparedDays+' дн. · выполнение '+metric.percent+'%':'Пока нет сопоставимых дней (проверь вид вещества цели и записей)';
     const groups=data.groups.map(g=>'<p><b>'+html(g.label)+'</b> · '+known(g.known,g.count-g.missing,g.missing)+
       (enabled(state,"Протеин")&&(g.powder||g.powderUnknown)?' · из порошка '+known(g.powder,g.powder>0?1:0,g.powderUnknown):"")+'</p>').join("");
     const trend=data.trends.map(t=>'<p>За '+t.days+' дней · '+(t.count?fmt(t.mean)+' кг':'нет замеров')+' · дней с замерами '+t.count+' из '+t.days+'</p>').join("");

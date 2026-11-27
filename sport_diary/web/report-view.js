@@ -107,7 +107,7 @@ function intakeBody(r){
   const ended=r.elapsed>0&&r.end<r.today;
   const doses=doseMetrics.filter(([key])=>SportVisibility.doseMetric(state,key)).map(([key,prefix,label,unit])=>metric(label,d[key],d[prefix+"Known"]||(ended&&!d[prefix+"Unknown"]),d[prefix+"Unknown"],unit));
   return reportMetrics([["Дней с записью еды",r.foodDays],["Из них с известным белком всех внесённых порций",r.loggedProteinDays]])+
-    '<div class="reportMetrics">'+macros.join("")+doses.join("")+'</div>'+legacyDoseSelection(issues);
+    '<div class="reportMetrics">'+macros.join("")+doses.join("")+'</div>'+(n.approximate?'<p class="muted">Итоги приблизительные: использованы расчётные составы. Источники и оценки сохраняются в составе каждого приёма.</p>':"")+legacyDoseSelection(issues);
 }
 function legacyDoseSelection(issues){
   const choices=issues.filter(row=>row.kind==="dose"&&state.supps[row.index]?.servings==null&&row.fields.some(f=>f.startsWith("Порции")));
